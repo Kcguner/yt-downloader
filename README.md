@@ -44,6 +44,11 @@ python gui.py
 3. Format ve kalite ayarlarını belirle
 4. `İndir` butonuna bas
 
+### Ekran GÃ¶rÃ¼ntÃ¼leri
+
+![Normal](assets/screenshot-normal.png)
+![Tam Ekran](assets/screenshot-fullscreen.png)
+
 ### Teknoloji
 
 | Bileşen | Teknoloji |
@@ -97,6 +102,15 @@ python gui.py
 2. Select Video or Audio
 3. Choose format and quality
 4. Click `Download`
+
+### Screenshots
+
+![Normal](assets/screenshot-normal.png)
+![Fullscreen](assets/screenshot-fullscreen.png)
+
+### Quick Install
+
+[Download YT-Downloader.exe](https://github.com/Kcguner/yt-downloader/releases/latest)
 
 ### Disclaimer
 

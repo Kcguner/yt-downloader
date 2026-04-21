@@ -16,7 +16,7 @@
 ### 1.2 Ekran Görüntüsü
 - [ ] GUI'yi aç, tam ekran ve normal ekran olmak üzere 2 screenshot al
 - [ ] Dosyaları repo kökünde `assets/` klasörüne kaydet (`assets/screenshot-normal.png`, `assets/screenshot-fullscreen.png`)
-- [ ] README.md'ye ekran görüntülerini ekle:
+- [x] README.md'ye ekran görüntülerini ekle:
   ```markdown
   ## Ekran Görüntüleri
   ![Normal](assets/screenshot-normal.png)
@@ -71,9 +71,9 @@
 - [x] Hatalı URL'leri atla, diğerlerine devam et
 
 ### 4.2 Drag & Drop
-- [ ] `tkinterdnd2` veya benzer kütüphane ile sürükle-bırak desteği ekle
-- [ ] Tarayıcıdan URL sürüklenince otomatik algıla ve entry'ye yapıştır
-- [ ] Birden fazla URL sürüklenebilir olsun
+- [x] `tkinterdnd2` veya benzer kütüphane ile sürükle-bırak desteği ekle
+- [x] Tarayıcıdan URL sürüklenince otomatik algıla ve entry'ye yapıştır
+- [x] Birden fazla URL sürüklenebilir olsun
 
 ---
 
@@ -91,10 +91,10 @@
 - [x] Aynı URL tekrar indirilmeye çalışıldığında uyar: "Bu video daha önce indirildi. Yine de indir?"
 
 ### 5.2 Geçmiş Paneli
-- [ ] GUI'ye "Geçmiş" sekmesi veya yan panel ekle
-- [ ] Son 50 indirmeyi listele
-- [ ] Dosya yoluna tıklayınca klasörü aç
-- [ ] Geçmişi temizle butonu
+- [x] GUI'ye "Geçmiş" sekmesi veya yan panel ekle
+- [x] Son 50 indirmeyi listele
+- [x] Dosya yoluna tıklayınca klasörü aç
+- [x] Geçmişi temizle butonu
 
 ---
 
@@ -110,17 +110,17 @@
 - [ ] `.exe` dosyasının boyutunu kontrol et (CustomTkinter + yt-dlp ile ~80-120 MB olabilir)
 - [ ] Test: temiz bir Windows makinede `.exe`'yi çalıştır, Python kurulu olmadan çalıştığını doğrula
 - [ ] GitHub Releases'a `.exe` dosyasını yükle
-- [ ] README'ye indirme bağlantısı ekle:
+- [x] README'ye indirme bağlantısı ekle:
   ```markdown
   ## Hızlı Kurulum
   [YT-Downloader.exe indir](https://github.com/Kcguner/yt-downloader/releases/latest)
   ```
 
 ### 6.2 .spec Dosyası
-- [ ] `YT-Downloader.spec` dosyasını repo'ya ekle (tekrarlanabilir build için)
-- [ ] Hidden imports listesini kontrol et (yt-dlp extractors lazy-load yapar)
-- [ ] `--collect-all yt_dlp` flag'ini ekle
-- [ ] ffmpeg'i bundle'a dahil etme — kullanıcı kendisi kursun
+- [x] `YT-Downloader.spec` dosyasını repo'ya ekle (tekrarlanabilir build için)
+- [x] Hidden imports listesini kontrol et (yt-dlp extractors lazy-load yapar)
+- [x] `--collect-all yt_dlp` flag'ini ekle
+- [x] ffmpeg'i bundle'a dahil etme — kullanıcı kendisi kursun
 
 ---
 
@@ -134,10 +134,10 @@
 - [x] Açık tema renk paletini kart, input, buton, progress ve liste bileşenlerine düzgün uygula
 
 ### 7.2 Video Önizleme
-- [ ] URL yapıştırıldıktan sonra "Bilgi Al" butonu veya otomatik bilgi çekme
-- [ ] Thumbnail, başlık, süre ve kanal adını URL kartının altında göster
-- [ ] `yt_dlp.YoutubeDL({'extract_flat': True}).extract_info(url, download=False)` kullan
-- [ ] Bilgi çekerken küçük spinner göster
+- [x] URL yapıştırıldıktan sonra "Bilgi Al" butonu veya otomatik bilgi çekme
+- [x] Thumbnail, başlık, süre ve kanal adını URL kartının altında göster
+- [x] `yt_dlp.YoutubeDL({'extract_flat': True}).extract_info(url, download=False)` kullan
+- [x] Bilgi çekerken küçük spinner göster
 
 ### 7.3 Dosya Yöneticisi Entegrasyonu
 - [x] İndirme tamamlandığında "Klasörü Aç" butonu göster
@@ -167,14 +167,14 @@
 ## 9. Otomatik Güncelleme
 
 ### 9.1 yt-dlp Güncelleme
-- [ ] Uygulama açılırken yt-dlp'nin güncel olup olmadığını kontrol et
-- [ ] PyPI'dan en son versiyonu çek ve karşılaştır
-- [ ] Güncelleme varsa bildirim göster: "yt-dlp güncellemesi mevcut — Güncelle"
-- [ ] Güncelleme butonu: `pip install -U yt-dlp` komutunu arka planda çalıştır
+- [x] Uygulama açılırken yt-dlp'nin güncel olup olmadığını kontrol et
+- [x] PyPI'dan en son versiyonu çek ve karşılaştır
+- [x] Güncelleme varsa bildirim göster: "yt-dlp güncellemesi mevcut — Güncelle"
+- [x] Güncelleme butonu: `pip install -U yt-dlp` komutunu arka planda çalıştır
 
 ### 9.2 Uygulama Güncelleme
-- [ ] GitHub Releases API ile en son sürümü kontrol et
-- [ ] Yeni sürüm varsa indirme bağlantısı göster
+- [x] GitHub Releases API ile en son sürümü kontrol et
+- [x] Yeni sürüm varsa indirme bağlantısı göster
 - [x] Sürüm numarasını `gui.py` içinde `__version__ = "3.1.0"` olarak tanımla
 
 ---
@@ -194,9 +194,9 @@
 ### 10.2 Otomatik Testler (opsiyonel)
 - [x] `pytest` ile temel unit testler yaz
 - [x] Tema paleti ve header tercih yerleşimi için GUI regresyon testleri ekle
-- [ ] `_build_video_opts` ve `_build_audio_opts` fonksiyonlarını test et
-- [ ] Format string oluşturma mantığını doğrula
-- [ ] GitHub Actions ile CI pipeline kur
+- [x] `_build_video_opts` ve `_build_audio_opts` fonksiyonlarını test et
+- [x] Format string oluşturma mantığını doğrula
+- [x] GitHub Actions ile CI pipeline kur
 
 ---
 

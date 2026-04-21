@@ -32,6 +32,25 @@ class TestGuiRuntime(unittest.TestCase):
             "error.unexpected",
         )
 
+    def test_is_newer_version(self):
+        self.assertTrue(gui_runtime.is_newer_version("2026.04.20", "2026.04.19"))
+        self.assertFalse(gui_runtime.is_newer_version("2026.04.19", "2026.04.20"))
+        self.assertFalse(gui_runtime.is_newer_version("v3.1.0", "3.1.0"))
+
+    def test_fetch_latest_ytdlp_version(self):
+        with mock.patch("gui_runtime.fetch_json", return_value={"info": {"version": "2026.04.20"}}):
+            latest = gui_runtime.fetch_latest_ytdlp_version()
+        self.assertEqual(latest, "2026.04.20")
+
+    def test_fetch_latest_release(self):
+        with mock.patch(
+            "gui_runtime.fetch_json",
+            return_value={"tag_name": "v3.2.0", "html_url": "https://example.com/release"},
+        ):
+            tag, url = gui_runtime.fetch_latest_release("owner/repo")
+        self.assertEqual(tag, "v3.2.0")
+        self.assertEqual(url, "https://example.com/release")
+
     def test_resolve_ffmpeg_location_prefers_bundled(self):
         with (
             mock.patch("gui_runtime._runtime_root", return_value=Path("X:/runtime")),

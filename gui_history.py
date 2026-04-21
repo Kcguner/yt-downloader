@@ -41,3 +41,14 @@ def has_url(url: str) -> bool:
         if item.get("url") == u:
             return True
     return False
+
+
+def recent_history(limit: int = 50) -> list[dict]:
+    if limit <= 0:
+        return []
+    items = load_history()
+    return list(reversed(items[-limit:]))
+
+
+def clear_history() -> None:
+    save_history([])

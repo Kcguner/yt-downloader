@@ -12,23 +12,35 @@ import queue
 import subprocess
 import sys
 import webbrowser
+import base64
+from urllib import request as urlrequest
 from datetime import datetime
 from tkinter import messagebox
 
-from gui_history import append_history, has_url
+from gui_history import append_history, clear_history, has_url, recent_history
 from gui_i18n import load_config, load_locales, normalize_language, save_config, tr
 from gui_runtime import (
     FFMPEG_DOWNLOAD_URL,
+    fetch_latest_release,
+    fetch_latest_ytdlp_version,
     has_internet_connection,
+    is_newer_version,
     is_valid_download_url,
     map_download_exception_key,
     resolve_ffmpeg_location,
 )
 
+try:
+    from tkinterdnd2 import DND_TEXT  # type: ignore
+except ImportError:
+    DND_TEXT = None
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 __version__ = "3.1.0"
+APP_RELEASE_REPO = "Kcguner/yt-downloader"
+DEFAULT_OUTTMPL = "%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s"
 
 
 def resolve_theme_palette(mode: str) -> dict[str, str]:
@@ -297,6 +309,12 @@ class App(ctk.CTk):
         self._batch_total = 0
         self._batch_index = 0
         self._batch_urls: dict[int, str] = {}
+        self._dnd_available = False
+        self._preview_img: tk.PhotoImage | None = None
+        self._preview_loading = False
+        self._preview_spinner_phase = 0
+        self._latest_app_release_url: str | None = None
+        self._latest_ytdlp_version: str | None = None
         self._ffmpeg_location, self._ffmpeg_source = resolve_ffmpeg_location()
         self._ffmpeg_available = bool(self._ffmpeg_location)
         self._type_video_label = self._tr("type.video")
@@ -309,14 +327,15 @@ class App(ctk.CTk):
         self._container = ctk.CTkFrame(self, fg_color="transparent")
         self._container.grid(row=0, column=0, sticky="nsew")
         self._container.grid_columnconfigure(0, weight=1)
-        for r in range(8):
-            self._container.grid_rowconfigure(r, weight=(1 if r == 7 else 0))
+        for r in range(10):
+            self._container.grid_rowconfigure(r, weight=(1 if r == 8 else 0))
 
         self.bind("<Configure>", self._on_resize)
 
         self._build_all()
         self._bind_shortcuts()
         self._poll()
+        self.after(400, self._start_update_checks)
 
     def _on_resize(self, event=None):
         """Tam ekranda container'ı ortala ve max genişliği sınırla."""
@@ -556,6 +575,7 @@ class App(ctk.CTk):
     def _build_all(self):
         self._build_header()
         self._build_url()
+        self._build_preview()
         self._build_type_format()
         self._build_options()
         self._on_type(self._type_seg.get())
@@ -563,6 +583,7 @@ class App(ctk.CTk):
         self._build_dl_button()
         self._build_progress()
         self._build_tracklist()
+        self._build_history_panel()
 
     # ── Başlık ──────────────────────────────────
     def _build_header(self):
@@ -672,6 +693,8 @@ class App(ctk.CTk):
             for widget in (warn, icon, text):
                 widget.bind("<Button-1>", self._open_ffmpeg_download)
 
+        self._build_update_notices(hf)
+
     # ── URL ─────────────────────────────────────
     def _build_header_pref_selector(self, parent, column: int, label: str, values, variable, command):
         wrapper = ctk.CTkFrame(parent, fg_color="transparent")
@@ -685,6 +708,76 @@ class App(ctk.CTk):
         menu = self._omenu(wrapper, values, variable, row=1, column=0, sticky="ew")
         menu.configure(width=148, height=34, command=command)
         return menu
+
+    def _build_update_notices(self, parent):
+        self._update_notice_frame = ctk.CTkFrame(
+            parent,
+            fg_color=self._palette["info_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self._palette["info_edge"],
+        )
+        self._update_notice_frame.grid(row=2, column=0, columnspan=2, pady=(10, 0), sticky="ew")
+        self._update_notice_frame.grid_columnconfigure(0, weight=1)
+        self._update_notice_frame.grid_remove()
+
+        self._ytdlp_notice = ctk.CTkFrame(self._update_notice_frame, fg_color="transparent")
+        self._ytdlp_notice.grid(row=0, column=0, padx=10, pady=(8, 2), sticky="ew")
+        self._ytdlp_notice.grid_columnconfigure(0, weight=1)
+        self._ytdlp_notice.grid_remove()
+        self._ytdlp_notice_label = ctk.CTkLabel(
+            self._ytdlp_notice,
+            text=self._tr("update.ytdlp.available"),
+            font=ctk.CTkFont(size=12),
+            text_color=self._palette["text_primary"],
+            anchor="w",
+        )
+        self._ytdlp_notice_label.grid(row=0, column=0, sticky="w")
+        self._ytdlp_notice_btn = ctk.CTkButton(
+            self._ytdlp_notice,
+            text=self._tr("update.ytdlp.button"),
+            width=118,
+            height=30,
+            corner_radius=7,
+            command=self._run_ytdlp_update,
+            fg_color=self.C_BTN,
+            hover_color=self.C_BTN_HOV,
+            text_color=self._palette["button_text"],
+            font=ctk.CTkFont(size=12),
+        )
+        self._ytdlp_notice_btn.grid(row=0, column=1, padx=(10, 0))
+
+        self._app_notice = ctk.CTkFrame(self._update_notice_frame, fg_color="transparent")
+        self._app_notice.grid(row=1, column=0, padx=10, pady=(2, 8), sticky="ew")
+        self._app_notice.grid_columnconfigure(0, weight=1)
+        self._app_notice.grid_remove()
+        self._app_notice_label = ctk.CTkLabel(
+            self._app_notice,
+            text=self._tr("update.app.available"),
+            font=ctk.CTkFont(size=12),
+            text_color=self._palette["text_primary"],
+            anchor="w",
+        )
+        self._app_notice_label.grid(row=0, column=0, sticky="w")
+        self._app_notice_btn = ctk.CTkButton(
+            self._app_notice,
+            text=self._tr("update.app.button"),
+            width=118,
+            height=30,
+            corner_radius=7,
+            command=self._open_latest_release_page,
+            fg_color=self.C_BTN,
+            hover_color=self.C_BTN_HOV,
+            text_color=self._palette["button_text"],
+            font=ctk.CTkFont(size=12),
+        )
+        self._app_notice_btn.grid(row=0, column=1, padx=(10, 0))
+
+    def _refresh_update_notice_visibility(self):
+        if self._ytdlp_notice.winfo_ismapped() or self._app_notice.winfo_ismapped():
+            self._update_notice_frame.grid()
+        else:
+            self._update_notice_frame.grid_remove()
 
     def _build_url(self):
         card = self._card(1)
@@ -736,6 +829,15 @@ class App(ctk.CTk):
         ).pack(side="left", padx=(0, 5))
 
         ctk.CTkButton(
+            btns, text=self._tr("button.fetch_info"), width=94, height=46,
+            command=self._start_preview_fetch,
+            corner_radius=8,
+            fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
+            font=ctk.CTkFont(size=13),
+            text_color=self._palette["button_text"],
+        ).pack(side="left", padx=(0, 5))
+
+        ctk.CTkButton(
             btns, text="✕", width=46, height=46,
             command=self._clear_url_text,
             corner_radius=8,
@@ -744,9 +846,193 @@ class App(ctk.CTk):
             text_color=self._palette["button_text"],
         ).pack(side="left")
 
+        self._setup_url_drag_drop()
+
+    def _build_preview(self):
+        card = self._card(2, self._tr("card.preview"))
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.grid(row=1, column=0, padx=16, pady=(4, 14), sticky="ew")
+        body.grid_columnconfigure(1, weight=1)
+
+        self._preview_thumb = ctk.CTkLabel(
+            body,
+            width=200,
+            height=112,
+            text=self._tr("preview.empty"),
+            corner_radius=8,
+            fg_color=self._palette["input_bg"],
+            text_color=self._palette["text_subtle"],
+        )
+        self._preview_thumb.grid(row=0, column=0, rowspan=3, padx=(0, 12), sticky="nw")
+
+        self._preview_title = ctk.CTkLabel(
+            body,
+            text=self._tr("preview.empty_title"),
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self._palette["text_primary"],
+        )
+        self._preview_title.grid(row=0, column=1, sticky="ew")
+
+        self._preview_meta = ctk.CTkLabel(
+            body,
+            text=self._tr("preview.empty_meta"),
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=12),
+            text_color=self._palette["text_muted"],
+        )
+        self._preview_meta.grid(row=1, column=1, sticky="w", pady=(4, 0))
+
+        status_row = ctk.CTkFrame(body, fg_color="transparent")
+        status_row.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        self._preview_spinner = ctk.CTkLabel(
+            status_row,
+            text="",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self._palette["accent"],
+        )
+        self._preview_spinner.pack(side="left")
+        self._preview_status = ctk.CTkLabel(
+            status_row,
+            text=self._tr("preview.idle"),
+            font=ctk.CTkFont(size=12),
+            text_color=self._palette["text_muted"],
+        )
+        self._preview_status.pack(side="left", padx=(6, 0))
+
+    def _setup_url_drag_drop(self):
+        self._dnd_available = False
+        if DND_TEXT is None:
+            return
+        try:
+            self.url_entry.drop_target_register(DND_TEXT)
+            self.url_entry.dnd_bind("<<Drop>>", self._on_url_drop)
+            self._dnd_available = True
+        except Exception:
+            self._dnd_available = False
+
+    def _extract_urls_from_drop(self, payload: str) -> list[str]:
+        if not payload:
+            return []
+        matches = re.findall(r"https?://\S+", payload, flags=re.IGNORECASE)
+        cleaned: list[str] = []
+        for match in matches:
+            url = match.strip().strip("{}").rstrip(",;")
+            if url and url not in cleaned:
+                cleaned.append(url)
+        return cleaned
+
+    def _on_url_drop(self, event):
+        urls = self._extract_urls_from_drop(getattr(event, "data", ""))
+        if not urls:
+            return
+        existing = [u.strip() for u in self._get_url_text().splitlines() if u.strip()]
+        merged = existing + [u for u in urls if u not in existing]
+        self._set_url_text("\n".join(merged))
+
+    def _start_preview_fetch(self):
+        raw = self._get_url_text()
+        urls = [u.strip() for u in raw.splitlines() if u.strip()]
+        url = next((u for u in urls if is_valid_download_url(u)), "")
+        if not url:
+            self._preview_status.configure(text=self._tr("status.invalid_url"), text_color=self.C_ERR)
+            return
+        if self._preview_loading:
+            return
+
+        self._preview_loading = True
+        self._preview_spinner_phase = 0
+        self._preview_status.configure(text=self._tr("preview.loading"), text_color=self._palette["text_muted"])
+        self._animate_preview_spinner()
+        threading.Thread(target=self._preview_worker, args=(url,), daemon=True).start()
+
+    def _preview_worker(self, url: str):
+        try:
+            import yt_dlp
+        except ImportError:
+            self._q("preview_error", self._tr("error.ytdlp_missing"))
+            return
+
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if isinstance(info, dict) and info.get("_type") == "playlist":
+                entries = info.get("entries") or []
+                info = next((e for e in entries if isinstance(e, dict)), info)
+
+            title = (info or {}).get("title") or url
+            duration = (info or {}).get("duration")
+            channel = (info or {}).get("channel") or (info or {}).get("uploader") or "—"
+            thumbnail = (info or {}).get("thumbnail") or ""
+            thumb_data = self._download_thumbnail_data(thumbnail) if thumbnail else None
+            self._q("preview_data", title, duration, channel, thumb_data)
+        except Exception as exc:
+            self._q("preview_error", self._tr(map_download_exception_key(exc)))
+
+    def _download_thumbnail_data(self, image_url: str) -> str | None:
+        req = urlrequest.Request(image_url, headers={"User-Agent": "yt-downloader-gui/3.1"})
+        try:
+            with urlrequest.urlopen(req, timeout=5) as response:
+                raw = response.read()
+        except Exception:
+            return None
+        if not raw:
+            return None
+        return base64.b64encode(raw).decode("ascii")
+
+    def _format_duration(self, seconds: int | float | None) -> str:
+        if not isinstance(seconds, (int, float)) or seconds < 0:
+            return "—"
+        total = int(seconds)
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return f"{h}:{m:02d}:{s:02d}"
+        return f"{m}:{s:02d}"
+
+    def _animate_preview_spinner(self):
+        if not self._preview_loading:
+            self._preview_spinner.configure(text="")
+            return
+        frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        self._preview_spinner.configure(text=frames[self._preview_spinner_phase % len(frames)])
+        self._preview_spinner_phase += 1
+        self.after(100, self._animate_preview_spinner)
+
+    def _show_preview_data(self, title: str, duration: int | float | None, channel: str, thumb_data: str | None):
+        self._preview_loading = False
+        self._preview_title.configure(text=title)
+        self._preview_meta.configure(
+            text=self._tr(
+                "preview.meta",
+                duration=self._format_duration(duration),
+                channel=channel,
+            )
+        )
+        self._preview_status.configure(text=self._tr("preview.ready"), text_color=self.C_SUCCESS)
+        if thumb_data:
+            try:
+                self._preview_img = tk.PhotoImage(data=thumb_data)
+                self._preview_thumb.configure(image=self._preview_img, text="")
+            except Exception:
+                self._preview_thumb.configure(image=None, text=self._tr("preview.no_thumb"))
+        else:
+            self._preview_thumb.configure(image=None, text=self._tr("preview.no_thumb"))
+
+    def _show_preview_error(self, message: str):
+        self._preview_loading = False
+        self._preview_status.configure(text=message, text_color=self.C_ERR)
+
     # ── Tür + Format (tek kart) ──────────────────
     def _build_type_format(self):
-        card = self._card(2)
+        card = self._card(3)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.grid(row=0, column=0, padx=16, pady=16, sticky="ew")
@@ -814,7 +1100,7 @@ class App(ctk.CTk):
 
     # ── Ayarlar ──────────────────────────────────
     def _build_options(self):
-        self._settings_card = self._card(3, self._tr("card.settings"))
+        self._settings_card = self._card(4, self._tr("card.settings"))
         card = self._settings_card
 
         # ── Video ayarları
@@ -887,7 +1173,7 @@ class App(ctk.CTk):
 
     # ── Kayıt Yeri ───────────────────────────────
     def _build_save_path(self):
-        card = self._card(4, self._tr("card.save_path"))
+        card = self._card(5, self._tr("card.save_path"))
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.grid(row=1, column=0, padx=16, pady=(4, 16), sticky="ew")
         row.grid_columnconfigure(0, weight=1)
@@ -926,7 +1212,7 @@ class App(ctk.CTk):
             corner_radius=10,
             text_color=self._palette["accent_text"],
         )
-        self._dl_btn.grid(row=5, column=0, padx=0, pady=(8, 4), sticky="ew")
+        self._dl_btn.grid(row=6, column=0, padx=0, pady=(8, 4), sticky="ew")
 
     def _on_main_button(self):
         if self._is_downloading:
@@ -936,7 +1222,7 @@ class App(ctk.CTk):
 
     # ── İlerleme ─────────────────────────────────
     def _build_progress(self):
-        card = self._card(6)
+        card = self._card(7)
 
         prog_container = ctk.CTkFrame(card, fg_color="transparent")
         prog_container.grid(row=0, column=0, padx=16, pady=(14, 4), sticky="ew")
@@ -991,7 +1277,7 @@ class App(ctk.CTk):
 
     # ── Track Listesi ────────────────────────────
     def _build_tracklist(self):
-        card = self._card(7, self._tr("card.tracklist"), expand=True)
+        card = self._card(8, self._tr("card.tracklist"), expand=True)
 
         # Boş durum
         self._pl_empty = ctk.CTkFrame(card, fg_color="transparent")
@@ -1029,6 +1315,123 @@ class App(ctk.CTk):
             row=1, column=0, padx=8, pady=(0, 10), sticky="nsew"
         )
         self._pl_scroll.grid_remove()
+
+    def _build_history_panel(self):
+        card = self._card(9, self._tr("card.history"))
+        toolbar = ctk.CTkFrame(card, fg_color="transparent")
+        toolbar.grid(row=1, column=0, padx=16, pady=(4, 8), sticky="ew")
+        toolbar.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            toolbar,
+            text=self._tr("history.subtitle"),
+            font=ctk.CTkFont(size=11),
+            text_color=self._palette["text_subtle"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkButton(
+            toolbar,
+            text=self._tr("history.clear"),
+            width=108,
+            height=30,
+            corner_radius=8,
+            fg_color=self.C_BTN,
+            hover_color=self.C_BTN_HOV,
+            text_color=self._palette["button_text"],
+            command=self._clear_history_items,
+            font=ctk.CTkFont(size=12),
+        ).grid(row=0, column=1, sticky="e")
+
+        self._history_scroll = ctk.CTkScrollableFrame(
+            card,
+            fg_color="transparent",
+            corner_radius=0,
+            height=180,
+        )
+        self._history_scroll.grid(row=2, column=0, padx=8, pady=(0, 10), sticky="ew")
+        self._history_scroll.grid_columnconfigure(0, weight=1)
+        self._refresh_history_panel()
+
+    def _refresh_history_panel(self):
+        if not hasattr(self, "_history_scroll"):
+            return
+        for widget in self._history_scroll.winfo_children():
+            widget.destroy()
+
+        entries = recent_history(50)
+        if not entries:
+            ctk.CTkLabel(
+                self._history_scroll,
+                text=self._tr("history.empty"),
+                text_color=self._palette["text_subtle"],
+                font=ctk.CTkFont(size=12),
+                anchor="w",
+            ).grid(row=0, column=0, padx=6, pady=6, sticky="w")
+            return
+
+        for idx, item in enumerate(entries):
+            row = ctk.CTkFrame(
+                self._history_scroll,
+                corner_radius=8,
+                fg_color=self._palette["track_bg"],
+                border_width=1,
+                border_color=self._palette["card_edge"],
+            )
+            row.grid(row=idx, column=0, padx=2, pady=2, sticky="ew")
+            row.grid_columnconfigure(0, weight=1)
+
+            title = item.get("title") or item.get("url") or self._tr("history.untitled")
+            date = item.get("download_date") or ""
+            path = item.get("file_path") or ""
+
+            ctk.CTkLabel(
+                row,
+                text=title,
+                anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self._palette["text_primary"],
+            ).grid(row=0, column=0, padx=(10, 8), pady=(8, 2), sticky="ew")
+
+            ctk.CTkLabel(
+                row,
+                text=date,
+                anchor="w",
+                font=ctk.CTkFont(size=11),
+                text_color=self._palette["text_subtle"],
+            ).grid(row=1, column=0, padx=(10, 8), pady=(0, 8), sticky="w")
+
+            open_btn = ctk.CTkButton(
+                row,
+                text=self._tr("history.open_folder"),
+                width=106,
+                height=28,
+                corner_radius=7,
+                fg_color=self.C_BTN,
+                hover_color=self.C_BTN_HOV,
+                text_color=self._palette["button_text"],
+                font=ctk.CTkFont(size=11),
+                command=lambda p=path: self._open_history_item_folder(p),
+            )
+            open_btn.grid(row=0, column=1, rowspan=2, padx=(0, 8), pady=8)
+            if not path:
+                open_btn.configure(state="disabled")
+
+    def _open_history_item_folder(self, file_path: str):
+        if not file_path:
+            return
+        folder = file_path if os.path.isdir(file_path) else os.path.dirname(file_path)
+        self._open_path(folder)
+
+    def _clear_history_items(self):
+        answer = messagebox.askyesno(
+            self._tr("history.clear_title"),
+            self._tr("history.clear_message"),
+        )
+        if not answer:
+            return
+        clear_history()
+        self._refresh_history_panel()
 
     # ─────────────────────────────────────────────
     #  Queue polling
@@ -1089,6 +1492,31 @@ class App(ctk.CTk):
                     if full_path:
                         self._last_download_path = full_path
                         self._bind_track_open(1, full_path)
+
+                elif kind == "preview_data":
+                    title, duration, channel, thumb_data = item[1], item[2], item[3], item[4]
+                    self._show_preview_data(title, duration, channel, thumb_data)
+
+                elif kind == "preview_error":
+                    message = item[1]
+                    self._show_preview_error(message)
+
+                elif kind == "history_refresh":
+                    self._refresh_history_panel()
+
+                elif kind == "update_ytdlp":
+                    self._show_ytdlp_update_notice(item[1])
+
+                elif kind == "update_app":
+                    self._show_app_update_notice(item[1], item[2])
+
+                elif kind == "update_ytdlp_done":
+                    ok = bool(item[1])
+                    if ok:
+                        self._ytdlp_notice_label.configure(text=self._tr("update.ytdlp.done"))
+                    else:
+                        self._ytdlp_notice_label.configure(text=self._tr("update.ytdlp.failed"))
+                    self._ytdlp_notice_btn.configure(state="normal")
 
                 elif kind == "done":
                     success = item[1]
@@ -1256,6 +1684,67 @@ class App(ctk.CTk):
         except Exception:
             pass
 
+    def _start_update_checks(self):
+        threading.Thread(target=self._update_check_worker, daemon=True).start()
+
+    def _update_check_worker(self):
+        try:
+            from yt_dlp.version import __version__ as installed_ytdlp_version
+        except Exception:
+            installed_ytdlp_version = None
+
+        latest_ytdlp = fetch_latest_ytdlp_version()
+        if latest_ytdlp and is_newer_version(latest_ytdlp, installed_ytdlp_version):
+            self._q("update_ytdlp", latest_ytdlp)
+
+        latest_tag, latest_url = fetch_latest_release(APP_RELEASE_REPO)
+        if latest_tag and latest_url and is_newer_version(latest_tag, __version__):
+            self._q("update_app", latest_tag, latest_url)
+
+    def _show_ytdlp_update_notice(self, latest_version: str):
+        self._latest_ytdlp_version = latest_version
+        self._ytdlp_notice_label.configure(
+            text=self._tr("update.ytdlp.available", version=latest_version)
+        )
+        self._ytdlp_notice.grid()
+        self._refresh_update_notice_visibility()
+
+    def _show_app_update_notice(self, latest_tag: str, latest_url: str):
+        self._latest_app_release_url = latest_url
+        self._app_notice_label.configure(
+            text=self._tr("update.app.available", version=latest_tag)
+        )
+        self._app_notice.grid()
+        self._refresh_update_notice_visibility()
+
+    def _run_ytdlp_update(self):
+        self._ytdlp_notice_btn.configure(state="disabled")
+        self._ytdlp_notice_label.configure(text=self._tr("update.ytdlp.running"))
+        threading.Thread(target=self._run_ytdlp_update_worker, daemon=True).start()
+
+    def _run_ytdlp_update_worker(self):
+        cmd = [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"]
+        ok = False
+        try:
+            completed = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            ok = completed.returncode == 0
+        except Exception:
+            ok = False
+        self._q("update_ytdlp_done", ok)
+
+    def _open_latest_release_page(self):
+        if not self._latest_app_release_url:
+            return
+        try:
+            webbrowser.open(self._latest_app_release_url)
+        except Exception:
+            pass
+
     # ─────────────────────────────────────────────
     #  İndirme başlat
     # ─────────────────────────────────────────────
@@ -1340,6 +1829,7 @@ class App(ctk.CTk):
             "file_path": file_path,
             "file_size": file_size,
         })
+        self._q("history_refresh")
 
     # ─────────────────────────────────────────────
     #  Arka plan worker
@@ -1361,7 +1851,7 @@ class App(ctk.CTk):
             "progress_hooks": [self._progress_hook],
             "logger":         _Logger(),
             "outtmpl": {
-                "default": "%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s",
+                "default": DEFAULT_OUTTMPL,
             },
             "writethumbnail": False,
             "ignoreerrors":   False,

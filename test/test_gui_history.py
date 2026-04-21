@@ -31,6 +31,22 @@ class TestGuiHistory(unittest.TestCase):
             if path.exists():
                 path.unlink()
 
+    def test_recent_history_and_clear_history(self):
+        path = Path("test/tmp-history-recent.json")
+        try:
+            with mock.patch("gui_history.history_path", return_value=path):
+                for idx in range(60):
+                    gui_history.append_history({"url": f"https://example.com/{idx}"})
+                recent = gui_history.recent_history(50)
+                self.assertEqual(len(recent), 50)
+                self.assertEqual(recent[0]["url"], "https://example.com/59")
+                self.assertEqual(recent[-1]["url"], "https://example.com/10")
+                gui_history.clear_history()
+                self.assertEqual(gui_history.load_history(), [])
+        finally:
+            if path.exists():
+                path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

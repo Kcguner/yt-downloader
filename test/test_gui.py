@@ -54,5 +54,65 @@ class TestGuiLayout(unittest.TestCase):
             app.destroy()
 
 
+class _Var:
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+
+class TestGuiDownloadOptions(unittest.TestCase):
+    def _make_app_stub(self):
+        app = object.__new__(gui.App)
+        tr_map = {
+            "opt.best": "En İyi",
+            "opt.auto": "Otomatik",
+            "opt.unlimited": "Sınırsız",
+            "opt.hdr_sdr_only": "Yalnız SDR",
+            "opt.audio_best_vbr": "En İyi (VBR)",
+            "opt.channel_stereo": "Stereo (2)",
+            "opt.channel_mono": "Mono (1)",
+        }
+        app._tr = lambda key, **_: tr_map.get(key, key)
+        return app
+
+    def test_build_video_opts(self):
+        app = self._make_app_stub()
+        app._res_var = _Var("1080p")
+        app._vcodec_var = _Var("h264 (AVC)")
+        app._fps_var = _Var("60")
+        app._hdr_var = _Var("Yalnız SDR")
+
+        opts = {}
+        app._build_video_opts(opts, "mp4")
+
+        self.assertEqual(opts["merge_output_format"], "mp4")
+        self.assertIn("height<=1080", opts["format"])
+        self.assertIn("[fps<=60]", opts["format"])
+        self.assertIn("[vcodec^=avc]", opts["format"])
+        self.assertIn("[dynamic_range!=HDR10]", opts["format"])
+
+    def test_build_audio_opts(self):
+        app = self._make_app_stub()
+        app._abitrate_var = _Var("192k")
+        app._samplerate_var = _Var("44100 Hz")
+        app._channels_var = _Var("Stereo (2)")
+
+        opts = {}
+        app._build_audio_opts(opts, "mp3")
+
+        self.assertEqual(opts["format"], "bestaudio/best")
+        self.assertEqual(opts["postprocessors"][0]["preferredcodec"], "mp3")
+        self.assertEqual(opts["postprocessors"][0]["preferredquality"], "192")
+        self.assertEqual(opts["postprocessor_args"]["FFmpegExtractAudio"], ["-ar", "44100", "-ac", "2"])
+
+    def test_default_output_template(self):
+        self.assertEqual(
+            gui.DEFAULT_OUTTMPL,
+            "%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
