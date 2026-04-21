@@ -94,50 +94,50 @@ def resolve_theme_palette(mode: str) -> dict[str, str]:
         }
 
     return {
-        'window_bg': '#0d0d0d',
-        'card_bg': '#131313',
-        'card_edge': '#222222',
-        'card_title': '#8b8178',
-        'text_primary': '#f2ede6',
-        'text_secondary': '#c5b9ac',
-        'text_muted': '#9a8d81',
-        'text_subtle': '#6f655d',
-        'title_accent': '#e53935',
-        'title_text': '#f2ede6',
-        'dot': '#505050',
-        'input_bg': '#1c1c1c',
-        'input_border': '#252525',
-        'input_text': '#efe8df',
-        'button_bg': '#222222',
-        'button_hover': '#333333',
-        'button_text': '#d0c4b7',
-        'danger': '#c62828',
-        'danger_hover': '#e53935',
-        'warning': '#875a12',
-        'warning_hover': '#a96f17',
-        'warning_text': '#f7cf8c',
-        'accent': '#b4583c',
-        'accent_hover': '#ca6a4d',
-        'accent_soft': '#7d3f2b',
-        'accent_soft_hover': '#94503a',
-        'accent_text': '#fff3e8',
-        'success': '#4caf50',
-        'error': '#ef5350',
-        'progress_track': '#3b3b3b',
-        'info_bg': '#161c28',
-        'info_edge': '#1e3050',
+        'window_bg': '#0b0c0f',
+        'card_bg': '#121318',
+        'card_edge': '#272930',
+        'card_title': '#c7a39f',
+        'text_primary': '#f5efee',
+        'text_secondary': '#dbc8c5',
+        'text_muted': '#b39591',
+        'text_subtle': '#7b6461',
+        'title_accent': '#ff4f3f',
+        'title_text': '#f5efee',
+        'dot': '#0b0c0f',
+        'input_bg': '#1c1f26',
+        'input_border': '#5e6572',
+        'input_text': '#f3e7e6',
+        'button_bg': '#262932',
+        'button_hover': '#353a46',
+        'button_text': '#f2e1df',
+        'danger': '#ff4f3f',
+        'danger_hover': '#ff685b',
+        'warning': '#9c6b1a',
+        'warning_hover': '#b47c20',
+        'warning_text': '#ffe5ae',
+        'accent': '#ff614f',
+        'accent_hover': '#ff7a69',
+        'accent_soft': '#7b2c25',
+        'accent_soft_hover': '#944036',
+        'accent_text': '#fff6f4',
+        'success': '#59c179',
+        'error': '#ff7a73',
+        'progress_track': '#3d414b',
+        'info_bg': '#1a1d25',
+        'info_edge': '#323a4c',
         'warning_bg': '#6c5600',
         'warning_fg': '#fff2a8',
-        'track_bg': '#161616',
-        'track_badge_bg': '#1c1c1c',
-        'track_active_bg': '#161c28',
-        'track_active_edge': '#1e3050',
-        'track_pending': '#707070',
-        'track_done': '#66bb6a',
-        'track_error': '#ef5350',
-        'menu_bg': '#1c1c1c',
-        'menu_hover': '#333333',
-        'menu_fg': '#d0d0d0',
+        'track_bg': '#161a22',
+        'track_badge_bg': '#1f2430',
+        'track_active_bg': '#1f2430',
+        'track_active_edge': '#485067',
+        'track_pending': '#8a8f99',
+        'track_done': '#75d796',
+        'track_error': '#ff7a73',
+        'menu_bg': '#1f2330',
+        'menu_hover': '#363b49',
+        'menu_fg': '#ebe1df',
     }
 
 
@@ -386,8 +386,8 @@ class App(ctk.CTk):
             fg_color=self._palette['input_bg'],
             unselected_color=self._palette['input_bg'],
             unselected_hover_color=self._palette['button_hover'],
-            selected_color=self._palette['accent_soft'],
-            selected_hover_color=self._palette['accent_hover'],
+            selected_color=self._palette['danger'],
+            selected_hover_color=self._palette['danger_hover'],
             text_color=self._palette['button_text'],
             text_color_disabled=self._palette['text_subtle'],
         )
@@ -457,14 +457,14 @@ class App(ctk.CTk):
     def _card(self, row: int, title: str = '', expand: bool = False) -> ctk.CTkFrame:
         card = ctk.CTkFrame(
             self._container,
-            corner_radius=12,
+            corner_radius=16,
             fg_color=self.C_CARD_BG,
             border_width=1,
             border_color=self.C_BORDER,
         )
         card.grid(
             row=row, column=0,
-            padx=0, pady=(3, 3),
+            padx=0, pady=(4, 4),
             sticky='nsew' if expand else 'ew',
         )
         card.grid_columnconfigure(0, weight=1)
@@ -473,7 +473,7 @@ class App(ctk.CTk):
         if title:
             ctk.CTkLabel(
                 card, text=title,
-                font=ctk.CTkFont(size=12, weight='bold'),
+                font=ctk.CTkFont(size=13, weight='bold'),
                 text_color=self._palette['card_title'],
             ).grid(row=0, column=0, padx=18, pady=(12, 2), sticky='w')
         return card
@@ -588,22 +588,22 @@ class App(ctk.CTk):
     # ── Başlık ──────────────────────────────────
     def _build_header(self):
         hf = ctk.CTkFrame(self._container, fg_color='transparent')
-        hf.grid(row=0, column=0, padx=4, pady=(22, 8), sticky='ew')
+        hf.grid(row=0, column=0, padx=4, pady=(20, 10), sticky='ew')
         hf.grid_columnconfigure(0, weight=1)
 
         title_frame = ctk.CTkFrame(hf, fg_color='transparent')
         title_frame.grid(row=0, column=0, sticky='w')
 
         ctk.CTkLabel(
-            title_frame, text='YT',
-            font=ctk.CTkFont(size=28, weight='bold'),
+            title_frame, text='YT DOWNLOADER',
+            font=ctk.CTkFont(size=22, weight='bold'),
             text_color=self._palette['title_accent'],
-        ).pack(side='left')
+        ).pack(side='left', padx=(0, 12))
 
         ctk.CTkLabel(
-            title_frame, text=' Downloader',
-            font=ctk.CTkFont(size=28, weight='bold'),
-            text_color=self._palette['title_text'],
+            title_frame, text=self._tr('header.engine').upper(),
+            font=ctk.CTkFont(size=11, weight='bold'),
+            text_color=self._palette['text_subtle'],
         ).pack(side='left')
 
         right_frame = ctk.CTkFrame(hf, fg_color='transparent')
@@ -625,7 +625,7 @@ class App(ctk.CTk):
         ).pack(side='left', padx=(0, 8))
 
         ctk.CTkLabel(
-            info_frame, text=self._tr('header.engine'),
+            info_frame, text='',
             font=ctk.CTkFont(size=13),
             text_color=self._palette['text_subtle'],
         ).pack(side='left')
@@ -780,33 +780,27 @@ class App(ctk.CTk):
             self._update_notice_frame.grid_remove()
 
     def _build_url(self):
-        card = self._card(1)
+        card = self._card(1, self._tr('url.label'))
         inner = ctk.CTkFrame(card, fg_color='transparent')
-        inner.grid(row=0, column=0, padx=16, pady=16, sticky='ew')
+        inner.grid(row=1, column=0, padx=18, pady=(6, 18), sticky='ew')
         inner.grid_columnconfigure(0, weight=1)
 
-        # Label
-        ctk.CTkLabel(
-            inner, text=self._tr('url.label'),
-            font=ctk.CTkFont(size=12, weight='bold'),
-            text_color=self._palette['card_title'],
-        ).grid(row=0, column=0, sticky='w', pady=(0, 8), columnspan=2)
         ctk.CTkLabel(
             inner,
             text=self._tr('url.placeholder'),
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=12),
             text_color=self._palette['text_subtle'],
-        ).grid(row=1, column=0, sticky='w', pady=(0, 6), columnspan=2)
+        ).grid(row=0, column=0, sticky='w', pady=(0, 8), columnspan=2)
 
         row = ctk.CTkFrame(inner, fg_color='transparent')
-        row.grid(row=2, column=0, sticky='ew', columnspan=2)
+        row.grid(row=1, column=0, sticky='ew', columnspan=2)
         row.grid_columnconfigure(0, weight=1)
 
         self.url_entry = ctk.CTkTextbox(
             row,
-            height=82,
+            height=86,
             font=ctk.CTkFont(size=14),
-            corner_radius=8,
+            corner_radius=12,
             border_width=1,
             fg_color=self._palette['input_bg'],
             border_color=self._palette['input_border'],
@@ -821,28 +815,28 @@ class App(ctk.CTk):
         btns.grid(row=0, column=1, padx=(8, 0))
 
         ctk.CTkButton(
-            btns, text=self._tr('button.paste'), width=90, height=46,
-            command=self._paste, corner_radius=8,
+            btns, text=self._tr('button.paste'), width=96, height=44,
+            command=self._paste, corner_radius=12,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=13, weight='bold'),
             text_color=self._palette['button_text'],
         ).pack(side='left', padx=(0, 5))
 
         ctk.CTkButton(
-            btns, text=self._tr('button.fetch_info'), width=94, height=46,
+            btns, text=self._tr('button.fetch_info'), width=108, height=44,
             command=self._start_preview_fetch,
-            corner_radius=8,
+            corner_radius=12,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(size=13, weight='bold'),
             text_color=self._palette['button_text'],
         ).pack(side='left', padx=(0, 5))
 
         ctk.CTkButton(
             btns, text='✕', width=46, height=46,
             command=self._clear_url_text,
-            corner_radius=8,
+            corner_radius=12,
             fg_color=self.C_BTN, hover_color=self.C_RED_HOV,
-            font=ctk.CTkFont(size=16),
+            font=ctk.CTkFont(size=15, weight='bold'),
             text_color=self._palette['button_text'],
         ).pack(side='left')
 
@@ -851,15 +845,15 @@ class App(ctk.CTk):
     def _build_preview(self):
         card = self._card(2, self._tr('card.preview'))
         body = ctk.CTkFrame(card, fg_color='transparent')
-        body.grid(row=1, column=0, padx=16, pady=(4, 14), sticky='ew')
+        body.grid(row=1, column=0, padx=18, pady=(6, 16), sticky='ew')
         body.grid_columnconfigure(1, weight=1)
 
         self._preview_thumb = ctk.CTkLabel(
             body,
-            width=200,
-            height=112,
+            width=212,
+            height=120,
             text=self._tr('preview.empty'),
-            corner_radius=8,
+            corner_radius=12,
             fg_color=self._palette['input_bg'],
             text_color=self._palette['text_subtle'],
         )
@@ -870,7 +864,7 @@ class App(ctk.CTk):
             text=self._tr('preview.empty_title'),
             anchor='w',
             justify='left',
-            font=ctk.CTkFont(size=14, weight='bold'),
+            font=ctk.CTkFont(size=15, weight='bold'),
             text_color=self._palette['text_primary'],
         )
         self._preview_title.grid(row=0, column=1, sticky='ew')
@@ -880,7 +874,7 @@ class App(ctk.CTk):
             text=self._tr('preview.empty_meta'),
             anchor='w',
             justify='left',
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=13),
             text_color=self._palette['text_muted'],
         )
         self._preview_meta.grid(row=1, column=1, sticky='w', pady=(4, 0))
@@ -998,6 +992,8 @@ class App(ctk.CTk):
         return f'{m}:{s:02d}'
 
     def _animate_preview_spinner(self):
+        if not self.winfo_exists():
+            return
         if not self._preview_loading:
             self._preview_spinner.configure(text='')
             return
@@ -1032,10 +1028,10 @@ class App(ctk.CTk):
 
     # ── Tür + Format (tek kart) ──────────────────
     def _build_type_format(self):
-        card = self._card(3)
+        card = self._card(3, self._tr('card.mode_format'))
 
         inner = ctk.CTkFrame(card, fg_color='transparent')
-        inner.grid(row=0, column=0, padx=16, pady=16, sticky='ew')
+        inner.grid(row=1, column=0, padx=16, pady=12, sticky='ew')
         inner.grid_columnconfigure(1, weight=1)
 
         # Tür
@@ -1100,7 +1096,7 @@ class App(ctk.CTk):
 
     # ── Ayarlar ──────────────────────────────────
     def _build_options(self):
-        self._settings_card = self._card(4, self._tr('card.settings'))
+        self._settings_card = self._card(4, self._tr('card.media_options'))
         card = self._settings_card
 
         # ── Video ayarları
@@ -1201,18 +1197,23 @@ class App(ctk.CTk):
 
     # ── İndir Butonu ─────────────────────────────
     def _build_dl_button(self):
+        action_row = ctk.CTkFrame(self._container, fg_color='transparent')
+        action_row.grid(row=6, column=0, padx=0, pady=(8, 4), sticky='ew')
+        action_row.grid_columnconfigure(0, weight=1)
+
         self._dl_btn = ctk.CTkButton(
-            self._container,
+            action_row,
             text=self._tr('button.download'),
-            height=54,
+            width=340,
+            height=56,
             font=ctk.CTkFont(size=18, weight='bold'),
             command=self._on_main_button,
             fg_color=self.C_RED,
             hover_color=self.C_RED_HOV,
-            corner_radius=10,
+            corner_radius=28,
             text_color=self._palette['accent_text'],
         )
-        self._dl_btn.grid(row=6, column=0, padx=0, pady=(8, 4), sticky='ew')
+        self._dl_btn.grid(row=0, column=0, sticky='e')
 
     def _on_main_button(self):
         if self._is_downloading:
@@ -1222,14 +1223,14 @@ class App(ctk.CTk):
 
     # ── İlerleme ─────────────────────────────────
     def _build_progress(self):
-        card = self._card(7)
+        card = self._card(7, self._tr('card.transfer_status'))
 
         prog_container = ctk.CTkFrame(card, fg_color='transparent')
         prog_container.grid(row=0, column=0, padx=16, pady=(14, 4), sticky='ew')
         prog_container.grid_columnconfigure(0, weight=1)
 
         self._prog_bar = ctk.CTkProgressBar(
-            prog_container, height=12, corner_radius=6,
+            prog_container, height=10, corner_radius=10,
             fg_color=self._palette['progress_track'],
             progress_color=self.C_RED_HOV,
         )
@@ -1237,7 +1238,7 @@ class App(ctk.CTk):
         self._prog_bar.set(0)
 
         stats = ctk.CTkFrame(card, fg_color='transparent')
-        stats.grid(row=1, column=0, padx=16, pady=(6, 12), sticky='ew')
+        stats.grid(row=1, column=0, padx=16, pady=(10, 12), sticky='ew')
         stats.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
         def sl(text=None, bold=False):
@@ -1245,7 +1246,7 @@ class App(ctk.CTk):
                 text = self._tr('status.idle')
             return ctk.CTkLabel(
                 stats, text=text,
-                font=ctk.CTkFont(size=14, weight='bold' if bold else 'normal'),
+                font=ctk.CTkFont(size=13, weight='bold' if bold else 'normal'),
                 text_color=self._palette['text_muted'],
             )
 
@@ -1277,7 +1278,7 @@ class App(ctk.CTk):
 
     # ── Track Listesi ────────────────────────────
     def _build_tracklist(self):
-        card = self._card(8, self._tr('card.tracklist'), expand=True)
+        card = self._card(8, self._tr('card.current_stream'), expand=True)
 
         # Boş durum
         self._pl_empty = ctk.CTkFrame(card, fg_color='transparent')
@@ -1317,7 +1318,7 @@ class App(ctk.CTk):
         self._pl_scroll.grid_remove()
 
     def _build_history_panel(self):
-        card = self._card(9, self._tr('card.history'))
+        card = self._card(9, self._tr('card.download_history'))
         toolbar = ctk.CTkFrame(card, fg_color='transparent')
         toolbar.grid(row=1, column=0, padx=16, pady=(4, 8), sticky='ew')
         toolbar.grid_columnconfigure(0, weight=1)
@@ -1437,6 +1438,8 @@ class App(ctk.CTk):
     #  Queue polling
     # ─────────────────────────────────────────────
     def _poll(self):
+        if not self.winfo_exists():
+            return
         try:
             while True:
                 item = self._log_queue.get_nowait()
@@ -1461,7 +1464,7 @@ class App(ctk.CTk):
                         self._track_rows[idx].set_title(title)
                         self._track_rows[idx].update_status('downloading')
                     self._s_status.configure(
-                        text=self._tr('status.track', idx=idx, total=total),
+                        text=f'TRACK {idx}/{total}',
                         text_color=self._palette['accent'],
                     )
 
