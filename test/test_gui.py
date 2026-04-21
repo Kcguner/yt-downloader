@@ -68,6 +68,28 @@ class TestGuiLayout(unittest.TestCase):
         finally:
             app.destroy()
 
+    def test_layout_mode_switches_by_content_width(self):
+        self.assertFalse(gui.use_wide_layout(1100))
+        self.assertTrue(gui.use_wide_layout(1320))
+
+    def test_wide_window_reflows_into_two_columns(self):
+        with (
+            mock.patch.object(gui, 'load_config', return_value={'theme': 'dark', 'language': 'en'}),
+            mock.patch.object(gui, 'save_config'),
+        ):
+            app = gui.App()
+
+        try:
+            app._apply_responsive_layout(1320)
+
+            self.assertTrue(app._wide_layout)
+            self.assertEqual(int(app._right_column.grid_info()['column']), 1)
+            self.assertTrue(_has_ancestor(app._url_card, app._left_column))
+            self.assertTrue(_has_ancestor(app._settings_card, app._right_column))
+            self.assertTrue(_has_ancestor(app._history_card, app._right_column))
+        finally:
+            app.destroy()
+
 
 class TestGuiFetchSummary(unittest.TestCase):
     def test_summarize_media_info_marks_single_item(self):

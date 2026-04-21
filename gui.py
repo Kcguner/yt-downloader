@@ -39,6 +39,7 @@ ctk.set_default_color_theme('dark-blue')
 __version__ = '3.1.0'
 APP_RELEASE_REPO = 'Kcguner/yt-downloader'
 DEFAULT_OUTTMPL = '%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s'
+WIDE_LAYOUT_MIN_WIDTH = 1280
 
 
 def summarize_media_info(info: dict | None, fallback_url: str = '') -> dict[str, object]:
@@ -73,6 +74,10 @@ def summarize_media_info(info: dict | None, fallback_url: str = '') -> dict[str,
         'duration': duration,
         'channel': channel,
     }
+
+
+def use_wide_layout(content_width: int) -> bool:
+    return content_width >= WIDE_LAYOUT_MIN_WIDTH
 
 
 def resolve_theme_palette(mode: str) -> dict[str, str]:
@@ -309,7 +314,7 @@ class TrackRow(ctk.CTkFrame):
 class App(ctk.CTk):
     # ── Renk paleti ──
     # Tam ekranda içerik genişliği
-    MAX_W = 1400
+    MAX_W = 1680
 
     def __init__(self):
         super().__init__()
@@ -343,6 +348,8 @@ class App(ctk.CTk):
         self._batch_urls: dict[int, str] = {}
         self._dnd_available = False
         self._preview_loading = False
+        self._wide_layout = False
+        self._content_width = 0
         self._latest_app_release_url: str | None = None
         self._latest_ytdlp_version: str | None = None
         self._ffmpeg_location, self._ffmpeg_source = resolve_ffmpeg_location()
@@ -368,10 +375,9 @@ class App(ctk.CTk):
         self._content_scroll.grid(row=0, column=0, sticky='nsew', padx=24, pady=(0, 10))
         self._content_scroll.grid_columnconfigure(0, weight=1)
 
-        self._container = ctk.CTkFrame(self._content_scroll, fg_color='transparent')
-        self._container.grid(row=0, column=0, sticky='ew')
+        self._container = self._content_scroll
         self._container.grid_columnconfigure(0, weight=1)
-        self._container.grid_rowconfigure(6, weight=1)
+        self._container.grid_rowconfigure(1, weight=1)
 
         self._action_bar = ctk.CTkFrame(self._layout_root, fg_color='transparent')
         self._action_bar.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 18))
@@ -386,13 +392,37 @@ class App(ctk.CTk):
 
     def _on_resize(self, event=None):
         """Tam ekranda container'ı ortala ve max genişliği sınırla."""
-        w = self.winfo_width()
-        if w > self.MAX_W + 80:
+        if not self.winfo_exists() or not hasattr(self, '_content_scroll') or not self._content_scroll.winfo_exists():
+            return
+        w = int(getattr(event, 'width', 0) or self.winfo_width())
+        if w > self.MAX_W + 48:
             pad_x = (w - self.MAX_W) // 2
         else:
             pad_x = 24
-        self._content_scroll.grid_configure(padx=pad_x)
-        self._action_bar.grid_configure(padx=pad_x)
+        self._content_width = max(320, w - (pad_x * 2) - 16)
+        try:
+            self._content_scroll.grid_configure(padx=pad_x)
+            self._action_bar.grid_configure(padx=pad_x)
+            self._apply_responsive_layout(self._content_width)
+        except tk.TclError:
+            return
+
+    def _apply_responsive_layout(self, content_width: int):
+        if not hasattr(self, '_body_grid'):
+            return
+        self._wide_layout = use_wide_layout(content_width)
+        for widget in (self._left_column, self._right_column):
+            widget.grid_forget()
+        if self._wide_layout:
+            self._body_grid.grid_columnconfigure(0, weight=7, uniform='content')
+            self._body_grid.grid_columnconfigure(1, weight=5, uniform='content')
+            self._left_column.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
+            self._right_column.grid(row=0, column=1, sticky='nsew', padx=(10, 0))
+        else:
+            self._body_grid.grid_columnconfigure(0, weight=1)
+            self._body_grid.grid_columnconfigure(1, weight=0)
+            self._left_column.grid(row=0, column=0, sticky='nsew')
+            self._right_column.grid(row=1, column=0, sticky='nsew', pady=(2, 0))
 
     def _tr(self, key: str, **kwargs) -> str:
         return tr(self._locales, self._lang, key, **kwargs)
@@ -503,9 +533,9 @@ class App(ctk.CTk):
     # ─────────────────────────────────────────────
     #  UI Yardımcıları
     # ─────────────────────────────────────────────
-    def _card(self, row: int, title: str = '', expand: bool = False) -> ctk.CTkFrame:
+    def _card(self, parent, row: int, title: str = '', expand: bool = False) -> ctk.CTkFrame:
         card = ctk.CTkFrame(
-            self._container,
+            parent,
             corner_radius=16,
             fg_color=self.C_CARD_BG,
             border_width=1,
@@ -622,20 +652,39 @@ class App(ctk.CTk):
     #  Bölüm inşaları
     # ─────────────────────────────────────────────
     def _build_all(self):
-        self._build_header()
-        self._build_url()
-        self._build_type_format()
-        self._build_options()
+        self._header_host = ctk.CTkFrame(self._container, fg_color='transparent')
+        self._header_host.grid(row=0, column=0, sticky='ew')
+        self._header_host.grid_columnconfigure(0, weight=1)
+
+        self._body_grid = ctk.CTkFrame(self._container, fg_color='transparent')
+        self._body_grid.grid(row=1, column=0, sticky='nsew')
+        self._body_grid.grid_columnconfigure(0, weight=1)
+        self._body_grid.grid_rowconfigure(0, weight=1)
+        self._body_grid.grid_rowconfigure(1, weight=1)
+
+        self._left_column = ctk.CTkFrame(self._body_grid, fg_color='transparent')
+        self._left_column.grid_columnconfigure(0, weight=1)
+        self._left_column.grid_rowconfigure(3, weight=1)
+
+        self._right_column = ctk.CTkFrame(self._body_grid, fg_color='transparent')
+        self._right_column.grid_columnconfigure(0, weight=1)
+        self._right_column.grid_rowconfigure(2, weight=1)
+
+        self._build_header(self._header_host)
+        self._build_url(self._left_column, 0)
+        self._build_save_path(self._left_column, 1)
+        self._build_progress(self._left_column, 2)
+        self._build_tracklist(self._left_column, 3)
+        self._build_type_format(self._right_column, 0)
+        self._build_options(self._right_column, 1)
         self._on_type(self._type_seg.get())
-        self._build_save_path()
         self._build_dl_button()
-        self._build_progress()
-        self._build_tracklist()
-        self._build_history_panel()
+        self._build_history_panel(self._right_column, 2)
+        self._apply_responsive_layout(self._content_width or self.winfo_width())
 
     # ── Başlık ──────────────────────────────────
-    def _build_header(self):
-        hf = ctk.CTkFrame(self._container, fg_color='transparent')
+    def _build_header(self, parent):
+        hf = ctk.CTkFrame(parent, fg_color='transparent')
         hf.grid(row=0, column=0, padx=4, pady=(20, 10), sticky='ew')
         hf.grid_columnconfigure(0, weight=1)
 
@@ -827,8 +876,9 @@ class App(ctk.CTk):
         else:
             self._update_notice_frame.grid_remove()
 
-    def _build_url(self):
-        card = self._card(1, self._tr('url.label'))
+    def _build_url(self, parent, row: int):
+        card = self._card(parent, row, self._tr('url.label'))
+        self._url_card = card
         inner = ctk.CTkFrame(card, fg_color='transparent')
         inner.grid(row=1, column=0, padx=18, pady=(4, 14), sticky='ew')
         inner.grid_columnconfigure(0, weight=1)
@@ -1030,8 +1080,9 @@ class App(ctk.CTk):
         self._preview_status.configure(text=message, text_color=self.C_ERR)
 
     # ── Tür + Format (tek kart) ──────────────────
-    def _build_type_format(self):
-        card = self._card(2, self._tr('card.mode_format'))
+    def _build_type_format(self, parent, row: int):
+        card = self._card(parent, row, self._tr('card.mode_format'))
+        self._mode_card = card
 
         inner = ctk.CTkFrame(card, fg_color='transparent')
         inner.grid(row=1, column=0, padx=14, pady=(6, 12), sticky='ew')
@@ -1094,8 +1145,8 @@ class App(ctk.CTk):
         self._afmt_frame.grid_remove()
 
     # ── Ayarlar ──────────────────────────────────
-    def _build_options(self):
-        self._settings_card = self._card(3, self._tr('card.media_options'))
+    def _build_options(self, parent, row: int):
+        self._settings_card = self._card(parent, row, self._tr('card.media_options'))
         card = self._settings_card
 
         # ── Video ayarları
@@ -1167,8 +1218,9 @@ class App(ctk.CTk):
 
 
     # ── Kayıt Yeri ───────────────────────────────
-    def _build_save_path(self):
-        card = self._card(4, self._tr('card.save_path'))
+    def _build_save_path(self, parent, row: int):
+        card = self._card(parent, row, self._tr('card.save_path'))
+        self._save_card = card
         row = ctk.CTkFrame(card, fg_color='transparent')
         row.grid(row=1, column=0, padx=14, pady=(4, 12), sticky='ew')
         row.grid_columnconfigure(0, weight=1)
@@ -1226,8 +1278,9 @@ class App(ctk.CTk):
             self.start_download()
 
     # ── İlerleme ─────────────────────────────────
-    def _build_progress(self):
-        card = self._card(5, self._tr('card.transfer_status'))
+    def _build_progress(self, parent, row: int):
+        card = self._card(parent, row, self._tr('card.transfer_status'))
+        self._progress_card = card
 
         prog_container = ctk.CTkFrame(card, fg_color='transparent')
         prog_container.grid(row=0, column=0, padx=16, pady=(14, 4), sticky='ew')
@@ -1281,8 +1334,9 @@ class App(ctk.CTk):
         self._open_folder_btn.grid_remove()
 
     # ── Track Listesi ────────────────────────────
-    def _build_tracklist(self):
-        card = self._card(6, self._tr('card.current_stream'), expand=True)
+    def _build_tracklist(self, parent, row: int):
+        card = self._card(parent, row, self._tr('card.current_stream'), expand=True)
+        self._tracklist_card = card
 
         # Boş durum
         self._pl_empty = ctk.CTkFrame(card, fg_color='transparent')
@@ -1321,8 +1375,9 @@ class App(ctk.CTk):
         )
         self._pl_scroll.grid_remove()
 
-    def _build_history_panel(self):
-        card = self._card(7, self._tr('card.download_history'))
+    def _build_history_panel(self, parent, row: int):
+        card = self._card(parent, row, self._tr('card.download_history'))
+        self._history_card = card
         toolbar = ctk.CTkFrame(card, fg_color='transparent')
         toolbar.grid(row=1, column=0, padx=16, pady=(4, 8), sticky='ew')
         toolbar.grid_columnconfigure(0, weight=1)
