@@ -29,4 +29,3 @@ Thumbs.db
 # Build
 pyproject.toml
 hatch.ini
-*.spec

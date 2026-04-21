@@ -9,9 +9,26 @@ import threading
 import os
 import re
 import queue
+import subprocess
+import sys
+import webbrowser
+from datetime import datetime
+from tkinter import messagebox
+
+from gui_history import append_history, has_url
+from gui_i18n import load_config, load_locales, normalize_language, save_config, tr
+from gui_runtime import (
+    FFMPEG_DOWNLOAD_URL,
+    has_internet_connection,
+    is_valid_download_url,
+    map_download_exception_key,
+    resolve_ffmpeg_location,
+)
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
+
+__version__ = "3.1.0"
 
 
 # ─────────────────────────────────────────────────
@@ -136,7 +153,7 @@ class TrackRow(ctk.CTkFrame):
                 border_color=("#222222", "#222222"),
             )
         elif status == "error":
-            self._info.configure(text="hata", text_color="#EF5350")
+            self._info.configure(text="error", text_color="#EF5350")
             self.configure(border_color=("#3d1a1a", "#3d1a1a"))
         else:
             self._info.configure(text="")
@@ -169,7 +186,14 @@ class App(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("YT Downloader")
+        self._locales = load_locales()
+        self._config = load_config()
+        self._lang = normalize_language(self._config.get("language"), self._locales)
+        self._theme = str(self._config.get("theme", "dark")).lower()
+        if self._theme not in {"dark", "light", "system"}:
+            self._theme = "dark"
+        ctk.set_appearance_mode(self._theme)
+        self.title(self._tr("app.title"))
         self.geometry("960x880")
         self.minsize(700, 640)
         self.resizable(True, True)
@@ -180,8 +204,19 @@ class App(ctk.CTk):
         self._media_type = "video"
         self._fmt = "mp4"
         self._track_rows: dict[int, TrackRow] = {}
+        self._track_files: dict[int, str] = {}
         self._current_dl_idx: int | None = None
         self._pl_total = 0
+        self._last_download_path = ""
+        self._is_downloading = False
+        self._cancel_event = threading.Event()
+        self._batch_total = 0
+        self._batch_index = 0
+        self._batch_urls: dict[int, str] = {}
+        self._ffmpeg_location, self._ffmpeg_source = resolve_ffmpeg_location()
+        self._ffmpeg_available = bool(self._ffmpeg_location)
+        self._type_video_label = self._tr("type.video")
+        self._type_audio_label = self._tr("type.audio")
 
         # ── Centered container — tam ekranda max genişlik sınırlı ──
         self.grid_columnconfigure(0, weight=1)
@@ -196,6 +231,7 @@ class App(ctk.CTk):
         self.bind("<Configure>", self._on_resize)
 
         self._build_all()
+        self._bind_shortcuts()
         self._poll()
 
     def _on_resize(self, event=None):
@@ -206,6 +242,78 @@ class App(ctk.CTk):
         else:
             pad_x = 24
         self._container.grid_configure(padx=pad_x)
+
+    def _tr(self, key: str, **kwargs) -> str:
+        return tr(self._locales, self._lang, key, **kwargs)
+
+    def _language_choices(self) -> dict[str, str]:
+        return {
+            self._tr("language.tr"): "tr",
+            self._tr("language.en"): "en",
+        }
+
+    def _theme_choices(self) -> dict[str, str]:
+        return {
+            self._tr("theme.dark"): "dark",
+            self._tr("theme.light"): "light",
+            self._tr("theme.system"): "system",
+        }
+
+    def _set_language(self, choice: str):
+        lang = self._language_choices().get(choice)
+        if not lang or lang == self._lang:
+            return
+        self._lang = lang
+        self._config["language"] = lang
+        save_config(self._config)
+        self._type_video_label = self._tr("type.video")
+        self._type_audio_label = self._tr("type.audio")
+        self._rebuild_ui()
+
+    def _set_theme(self, choice: str):
+        theme = self._theme_choices().get(choice)
+        if not theme or theme == self._theme:
+            return
+        self._theme = theme
+        self._config["theme"] = theme
+        ctk.set_appearance_mode(theme)
+        save_config(self._config)
+
+    def _rebuild_ui(self):
+        for child in self._container.winfo_children():
+            child.destroy()
+        self._track_rows.clear()
+        self._track_files.clear()
+        self._current_dl_idx = None
+        self._pl_total = 0
+        self._last_download_path = ""
+        self.title(self._tr("app.title"))
+        self._build_all()
+        self._bind_shortcuts()
+
+    def _bind_shortcuts(self):
+        self.bind_all("<Control-v>", self._shortcut_paste)
+        self.bind_all("<Control-V>", self._shortcut_paste)
+        self.bind_all("<Control-Return>", self._shortcut_start)
+        self.bind_all("<Escape>", self._shortcut_cancel)
+        self.bind_all("<Control-l>", self._shortcut_clear_focus)
+        self.bind_all("<Control-L>", self._shortcut_clear_focus)
+
+    def _shortcut_paste(self, _event=None):
+        self._paste()
+        return "break"
+
+    def _shortcut_start(self, _event=None):
+        self.start_download()
+        return "break"
+
+    def _shortcut_cancel(self, _event=None):
+        self.cancel_download()
+        return "break"
+
+    def _shortcut_clear_focus(self, _event=None):
+        self._clear_url_text()
+        return "break"
 
     # ─────────────────────────────────────────────
     #  UI Yardımcıları
@@ -251,13 +359,17 @@ class App(ctk.CTk):
     # ─────────────────────────────────────────────
     #  Sağ tık context menüsü
     # ─────────────────────────────────────────────
-    def _bind_context_menu(self, entry: ctk.CTkEntry):
-        """Entry widget'ına sağ tık menüsü bağla."""
-        inner = entry._entry  # CTkEntry'nin iç tk.Entry'si
+    def _bind_context_menu(self, entry):
+        """Entry/Textbox widget'ına sağ tık menüsü bağla."""
+        inner = getattr(entry, "_entry", None) or getattr(entry, "_textbox", None)
+        if inner is None:
+            return
         inner.bind("<Button-3>", lambda e: self._show_context_menu(e, entry))
 
-    def _show_context_menu(self, event, entry: ctk.CTkEntry):
-        inner = entry._entry
+    def _show_context_menu(self, event, entry):
+        inner = getattr(entry, "_entry", None) or getattr(entry, "_textbox", None)
+        if inner is None:
+            return
         menu = tk.Menu(
             self, tearoff=0,
             bg="#1c1c1c", fg="#d0d0d0",
@@ -266,52 +378,60 @@ class App(ctk.CTk):
             relief="flat", bd=1,
         )
         menu.add_command(
-            label="  Kes",
+            label=f"  {self._tr('menu.cut')}",
             command=lambda: self._ctx_cut(inner),
         )
         menu.add_command(
-            label="  Kopyala",
+            label=f"  {self._tr('menu.copy')}",
             command=lambda: self._ctx_copy(inner),
         )
         menu.add_command(
-            label="  Yapıştır",
+            label=f"  {self._tr('menu.paste')}",
             command=lambda: self._ctx_paste(entry),
         )
         menu.add_separator()
         menu.add_command(
-            label="  Tümünü Seç",
+            label=f"  {self._tr('menu.select_all')}",
             command=lambda: self._ctx_select_all(inner),
         )
         menu.add_separator()
         menu.add_command(
-            label="  Temizle",
-            command=lambda: entry.delete(0, "end"),
+            label=f"  {self._tr('menu.clear')}",
+            command=lambda: self._clear_widget_text(entry),
         )
         menu.tk_popup(event.x_root, event.y_root)
 
     def _ctx_cut(self, inner):
-        if inner.selection_present():
-            inner.event_generate("<<Cut>>")
+        try:
+            if hasattr(inner, "selection_present") and not inner.selection_present():
+                return
+        except Exception:
+            pass
+        inner.event_generate("<<Cut>>")
 
     def _ctx_copy(self, inner):
-        if inner.selection_present():
-            inner.event_generate("<<Copy>>")
+        try:
+            if hasattr(inner, "selection_present") and not inner.selection_present():
+                return
+        except Exception:
+            pass
+        inner.event_generate("<<Copy>>")
 
-    def _ctx_paste(self, entry: ctk.CTkEntry):
+    def _ctx_paste(self, entry):
         try:
             text = self.clipboard_get()
             if text:
-                # Seçili metin varsa önce sil
-                inner = entry._entry
-                if inner.selection_present():
-                    inner.delete("sel.first", "sel.last")
                 entry.insert("insert", text.strip())
         except Exception:
             pass
 
     def _ctx_select_all(self, inner):
-        inner.select_range(0, "end")
-        inner.icursor("end")
+        try:
+            inner.tag_add("sel", "1.0", "end")
+            inner.mark_set("insert", "end")
+        except Exception:
+            inner.select_range(0, "end")
+            inner.icursor("end")
 
     # ─────────────────────────────────────────────
     #  Bölüm inşaları
@@ -321,6 +441,7 @@ class App(ctk.CTk):
         self._build_url()
         self._build_type_format()
         self._build_options()
+        self._on_type(self._type_seg.get())
         self._build_save_path()
         self._build_dl_button()
         self._build_progress()
@@ -351,7 +472,7 @@ class App(ctk.CTk):
         info_frame.grid(row=0, column=1, sticky="e")
 
         ctk.CTkLabel(
-            info_frame, text="v3.1",
+            info_frame, text=f"v{__version__}",
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color="#606060",
         ).pack(side="left", padx=(0, 8))
@@ -363,10 +484,40 @@ class App(ctk.CTk):
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(
-            info_frame, text="yt-dlp engine",
+            info_frame, text=self._tr("header.engine"),
             font=ctk.CTkFont(size=13),
             text_color="#606060",
         ).pack(side="left")
+
+        if not self._ffmpeg_available:
+            warn = ctk.CTkFrame(
+                hf,
+                fg_color=("#6c5600", "#6c5600"),
+                corner_radius=8,
+            )
+            warn.grid(row=1, column=0, columnspan=2, pady=(12, 0), sticky="ew")
+            warn.grid_columnconfigure(1, weight=1)
+
+            icon = ctk.CTkLabel(
+                warn,
+                text="⚠",
+                font=ctk.CTkFont(size=15, weight="bold"),
+                text_color="#fff2a8",
+            )
+            icon.grid(row=0, column=0, padx=(10, 8), pady=8)
+
+            text = ctk.CTkLabel(
+                warn,
+                text=self._tr("warning.ffmpeg_missing"),
+                font=ctk.CTkFont(size=12),
+                text_color="#fff2a8",
+                anchor="w",
+                justify="left",
+            )
+            text.grid(row=0, column=1, padx=(0, 10), pady=8, sticky="ew")
+
+            for widget in (warn, icon, text):
+                widget.bind("<Button-1>", self._open_ffmpeg_download)
 
     # ── URL ─────────────────────────────────────
     def _build_url(self):
@@ -377,34 +528,39 @@ class App(ctk.CTk):
 
         # Label
         ctk.CTkLabel(
-            inner, text="BAĞLANTI",
+            inner, text=self._tr("url.label"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color="#808080",
         ).grid(row=0, column=0, sticky="w", pady=(0, 8), columnspan=2)
+        ctk.CTkLabel(
+            inner,
+            text=self._tr("url.placeholder"),
+            font=ctk.CTkFont(size=11),
+            text_color="#575757",
+        ).grid(row=1, column=0, sticky="w", pady=(0, 6), columnspan=2)
 
         row = ctk.CTkFrame(inner, fg_color="transparent")
-        row.grid(row=1, column=0, sticky="ew", columnspan=2)
+        row.grid(row=2, column=0, sticky="ew", columnspan=2)
         row.grid_columnconfigure(0, weight=1)
 
-        self.url_entry = ctk.CTkEntry(
+        self.url_entry = ctk.CTkTextbox(
             row,
-            placeholder_text="youtube.com/watch?v=... veya playlist bağlantısı yapıştır",
-            height=46,
+            height=88,
             font=ctk.CTkFont(size=14),
             corner_radius=8,
             border_width=1,
             border_color=("#252525", "#252525"),
-            placeholder_text_color="#505050",
         )
         self.url_entry.grid(row=0, column=0, sticky="ew")
-        self.url_entry.bind("<Return>", lambda _: self.start_download())
+        self.url_entry.insert("1.0", "")
+        self.url_entry.bind("<Control-Return>", lambda _: self.start_download())
         self._bind_context_menu(self.url_entry)
 
         btns = ctk.CTkFrame(row, fg_color="transparent")
         btns.grid(row=0, column=1, padx=(8, 0))
 
         ctk.CTkButton(
-            btns, text="Yapıştır", width=90, height=46,
+            btns, text=self._tr("button.paste"), width=90, height=46,
             command=self._paste, corner_radius=8,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=14),
@@ -413,7 +569,7 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             btns, text="✕", width=46, height=46,
-            command=lambda: self.url_entry.delete(0, "end"),
+            command=self._clear_url_text,
             corner_radius=8,
             fg_color=self.C_BTN, hover_color=("#3d1a1a", "#3d1a1a"),
             font=ctk.CTkFont(size=16),
@@ -430,20 +586,21 @@ class App(ctk.CTk):
 
         # Tür
         ctk.CTkLabel(
-            inner, text="TÜR",
+            inner, text=self._tr("label.type"),
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color="#909090", width=60,
         ).grid(row=0, column=0, sticky="w", padx=(0, 14))
 
         self._type_seg = ctk.CTkSegmentedButton(
             inner,
-            values=["🎬  Video", "🎵  Ses"],
+            values=[self._type_video_label, self._type_audio_label],
             command=self._on_type,
             font=ctk.CTkFont(size=14),
             height=40,
             corner_radius=8,
         )
-        self._type_seg.set("🎬  Video")
+        default_type = self._type_audio_label if self._media_type == "audio" else self._type_video_label
+        self._type_seg.set(default_type)
         self._type_seg.grid(row=0, column=1, sticky="ew")
 
         # Separator
@@ -452,7 +609,7 @@ class App(ctk.CTk):
 
         # Format
         ctk.CTkLabel(
-            inner, text="FORMAT",
+            inner, text=self._tr("label.format"),
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color="#909090", width=60,
         ).grid(row=2, column=0, sticky="w", padx=(0, 14))
@@ -486,7 +643,7 @@ class App(ctk.CTk):
 
     # ── Ayarlar ──────────────────────────────────
     def _build_options(self):
-        card = self._card(3, "AYARLAR")
+        card = self._card(3, self._tr("card.settings"))
 
         # ── Video ayarları
         self._v_opts = ctk.CTkFrame(card, fg_color="transparent")
@@ -494,24 +651,24 @@ class App(ctk.CTk):
         for c in range(4):
             self._v_opts.grid_columnconfigure(c, weight=1)
 
-        self._res_var    = ctk.StringVar(value="En İyi")
-        self._vcodec_var = ctk.StringVar(value="Otomatik")
-        self._fps_var    = ctk.StringVar(value="Sınırsız")
-        self._hdr_var    = ctk.StringVar(value="Dahil Et")
+        self._res_var    = ctk.StringVar(value=self._tr("opt.best"))
+        self._vcodec_var = ctk.StringVar(value=self._tr("opt.auto"))
+        self._fps_var    = ctk.StringVar(value=self._tr("opt.unlimited"))
+        self._hdr_var    = ctk.StringVar(value=self._tr("opt.hdr_include"))
 
         v_fields = [
-            ("Çözünürlük",
-             ["En İyi", "4320p (8K)", "2160p (4K)", "1440p (2K)",
+            (self._tr("opt.resolution"),
+             [self._tr("opt.best"), "4320p (8K)", "2160p (4K)", "1440p (2K)",
               "1080p", "720p", "480p", "360p", "240p"],
              self._res_var),
-            ("Video Codec",
-             ["Otomatik", "h264 (AVC)", "h265 (HEVC)", "VP9", "AV1"],
+            (self._tr("opt.video_codec"),
+             [self._tr("opt.auto"), "h264 (AVC)", "h265 (HEVC)", "VP9", "AV1"],
              self._vcodec_var),
-            ("Maks FPS",
-             ["Sınırsız", "60", "30", "24"],
+            (self._tr("opt.max_fps"),
+             [self._tr("opt.unlimited"), "60", "30", "24"],
              self._fps_var),
-            ("HDR",
-             ["Dahil Et", "Yalnız SDR"],
+            (self._tr("opt.hdr"),
+             [self._tr("opt.hdr_include"), self._tr("opt.hdr_sdr_only")],
              self._hdr_var),
         ]
         for col, (lbl, vals, var) in enumerate(v_fields):
@@ -529,19 +686,19 @@ class App(ctk.CTk):
         for c in range(3):
             self._a_opts.grid_columnconfigure(c, weight=1)
 
-        self._abitrate_var   = ctk.StringVar(value="En İyi (VBR)")
-        self._samplerate_var = ctk.StringVar(value="Otomatik")
-        self._channels_var   = ctk.StringVar(value="Otomatik")
+        self._abitrate_var   = ctk.StringVar(value=self._tr("opt.audio_best_vbr"))
+        self._samplerate_var = ctk.StringVar(value=self._tr("opt.auto"))
+        self._channels_var   = ctk.StringVar(value=self._tr("opt.auto"))
 
         a_fields = [
-            ("Kalite / Bitrate",
-             ["En İyi (VBR)", "320k", "256k", "192k", "128k", "96k", "64k"],
+            (self._tr("opt.audio_quality"),
+             [self._tr("opt.audio_best_vbr"), "320k", "256k", "192k", "128k", "96k", "64k"],
              self._abitrate_var),
-            ("Örnekleme Hızı",
-             ["Otomatik", "48000 Hz", "44100 Hz", "22050 Hz"],
+            (self._tr("opt.sample_rate"),
+             [self._tr("opt.auto"), "48000 Hz", "44100 Hz", "22050 Hz"],
              self._samplerate_var),
-            ("Kanal",
-             ["Otomatik", "Stereo (2)", "Mono (1)"],
+            (self._tr("opt.channels"),
+             [self._tr("opt.auto"), self._tr("opt.channel_stereo"), self._tr("opt.channel_mono")],
              self._channels_var),
         ]
         for col, (lbl, vals, var) in enumerate(a_fields):
@@ -555,9 +712,53 @@ class App(ctk.CTk):
 
         self._a_opts.grid_remove()
 
+        theme_row = ctk.CTkFrame(card, fg_color="transparent")
+        theme_row.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
+        theme_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            theme_row,
+            text=self._tr("label.theme"),
+            font=ctk.CTkFont(size=12),
+            text_color="#909090",
+        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
+        theme_choices = self._theme_choices()
+        selected_theme = next((name for name, code in theme_choices.items() if code == self._theme), list(theme_choices)[0])
+        self._theme_var = ctk.StringVar(value=selected_theme)
+        theme_menu = self._omenu(
+            theme_row,
+            list(theme_choices.keys()),
+            self._theme_var,
+            row=0,
+            column=1,
+            sticky="e",
+        )
+        theme_menu.configure(command=self._set_theme)
+
+        lang_row = ctk.CTkFrame(card, fg_color="transparent")
+        lang_row.grid(row=3, column=0, padx=16, pady=(0, 14), sticky="ew")
+        lang_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            lang_row,
+            text=self._tr("label.language"),
+            font=ctk.CTkFont(size=12),
+            text_color="#909090",
+        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
+        choices = self._language_choices()
+        selected = next((name for name, code in choices.items() if code == self._lang), list(choices)[0])
+        self._lang_var = ctk.StringVar(value=selected)
+        lang_menu = self._omenu(
+            lang_row,
+            list(choices.keys()),
+            self._lang_var,
+            row=0,
+            column=1,
+            sticky="e",
+        )
+        lang_menu.configure(command=self._set_language)
+
     # ── Kayıt Yeri ───────────────────────────────
     def _build_save_path(self):
-        card = self._card(4, "KAYIT YERİ")
+        card = self._card(4, self._tr("card.save_path"))
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.grid(row=1, column=0, padx=16, pady=(4, 16), sticky="ew")
         row.grid_columnconfigure(0, weight=1)
@@ -575,7 +776,7 @@ class App(ctk.CTk):
         self._bind_context_menu(self._out_entry)
 
         ctk.CTkButton(
-            row, text="Gözat", width=84, height=40,
+            row, text=self._tr("button.browse"), width=84, height=40,
             command=self._browse, corner_radius=8,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=13),
@@ -586,16 +787,22 @@ class App(ctk.CTk):
     def _build_dl_button(self):
         self._dl_btn = ctk.CTkButton(
             self._container,
-            text="⬇  İNDİR",
+            text=self._tr("button.download"),
             height=54,
             font=ctk.CTkFont(size=18, weight="bold"),
-            command=self.start_download,
+            command=self._on_main_button,
             fg_color=self.C_RED,
             hover_color=self.C_RED_HOV,
             corner_radius=10,
             text_color="white",
         )
         self._dl_btn.grid(row=5, column=0, padx=0, pady=(8, 4), sticky="ew")
+
+    def _on_main_button(self):
+        if self._is_downloading:
+            self.cancel_download()
+        else:
+            self.start_download()
 
     # ── İlerleme ─────────────────────────────────
     def _build_progress(self):
@@ -616,7 +823,9 @@ class App(ctk.CTk):
         stats.grid(row=1, column=0, padx=16, pady=(6, 12), sticky="ew")
         stats.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        def sl(text="─", bold=False):
+        def sl(text=None, bold=False):
+            if text is None:
+                text = self._tr("status.idle")
             return ctk.CTkLabel(
                 stats, text=text,
                 font=ctk.CTkFont(size=14, weight="bold" if bold else "normal"),
@@ -635,9 +844,23 @@ class App(ctk.CTk):
         self._s_size.grid(row=0, column=3)
         self._s_status.grid(row=0, column=4, sticky="e")
 
+        self._open_folder_btn = ctk.CTkButton(
+            card,
+            text=self._tr("button.open_folder"),
+            height=34,
+            command=self._open_last_folder,
+            corner_radius=8,
+            fg_color=self.C_BTN,
+            hover_color=self.C_BTN_HOV,
+            font=ctk.CTkFont(size=13),
+            text_color="#c0c0c0",
+        )
+        self._open_folder_btn.grid(row=2, column=0, padx=16, pady=(0, 10), sticky="e")
+        self._open_folder_btn.grid_remove()
+
     # ── Track Listesi ────────────────────────────
     def _build_tracklist(self):
-        card = self._card(7, "İNDİRME LİSTESİ", expand=True)
+        card = self._card(7, self._tr("card.tracklist"), expand=True)
 
         # Boş durum
         self._pl_empty = ctk.CTkFrame(card, fg_color="transparent")
@@ -652,14 +875,14 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             self._pl_empty,
-            text="Henüz indirme yok",
+            text=self._tr("track.empty.title"),
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color="#606060",
         ).pack()
 
         ctk.CTkLabel(
             self._pl_empty,
-            text="URL gir ve İndir butonuna bas — liste buraya gelecek",
+            text=self._tr("track.empty.subtitle"),
             font=ctk.CTkFont(size=13),
             text_color="#484848",
         ).pack(pady=(4, 0))
@@ -704,7 +927,7 @@ class App(ctk.CTk):
                         self._track_rows[idx].set_title(title)
                         self._track_rows[idx].update_status("downloading")
                     self._s_status.configure(
-                        text=f"📋 {idx} / {total}",
+                        text=self._tr("status.track", idx=idx, total=total),
                         text_color="#42A5F5",
                     )
 
@@ -715,9 +938,13 @@ class App(ctk.CTk):
 
                 elif kind == "track_done":
                     idx, title, extra = item[1], item[2], item[3]
+                    full_path = item[4] if len(item) > 4 else ""
                     if idx in self._track_rows:
                         self._track_rows[idx].set_title(title)
                         self._track_rows[idx].update_status("done", extra=extra)
+                    if full_path:
+                        self._last_download_path = full_path
+                        self._bind_track_open(idx, full_path)
 
                 elif kind == "track_error":
                     idx = item[1]
@@ -726,18 +953,39 @@ class App(ctk.CTk):
 
                 elif kind == "single_done":
                     title, fn = item[1], item[2]
+                    full_path = item[3] if len(item) > 3 else ""
                     self._show_single(title, fn)
+                    if full_path:
+                        self._last_download_path = full_path
+                        self._bind_track_open(1, full_path)
 
                 elif kind == "done":
                     success = item[1]
+                    err_msg = item[2] if len(item) > 2 else ""
+                    is_cancelled = bool(item[3]) if len(item) > 3 else False
+                    self._is_downloading = False
                     self._prog_bar.set(1.0 if success else self._prog_bar.get())
-                    tc = self.C_SUCCESS if success else self.C_ERR
-                    lbl = "✓ Tamamlandı" if success else "✗ Başarısız"
+                    tc = self.C_SUCCESS if success else (self.C_ERR if not is_cancelled else "#f0ad4e")
+                    if success:
+                        lbl = self._tr("status.done")
+                    elif is_cancelled:
+                        lbl = err_msg or self._tr("status.cancelled")
+                        self._prog_bar.set(0)
+                        self._s_pct.configure(text="0.0%")
+                        self._s_speed.configure(text=self._tr("status.idle"))
+                        self._s_eta.configure(text=self._tr("status.idle"))
+                        self._s_size.configure(text=self._tr("status.idle"))
+                    else:
+                        lbl = f"✗ {err_msg or self._tr('status.failed')}"
                     self._s_pct.configure(text_color=tc)
                     self._s_status.configure(text=lbl, text_color=tc)
+                    if success and self._last_download_path:
+                        self._open_folder_btn.configure(text=self._tr("button.open_folder"))
+                        self._open_folder_btn.grid()
+                    else:
+                        self._open_folder_btn.grid_remove()
                     self._dl_btn.configure(
-                        state="normal",
-                        text="⬇  İNDİR",
+                        text=self._tr("button.download"),
                         fg_color=self.C_RED,
                         hover_color=self.C_RED_HOV,
                     )
@@ -778,7 +1026,7 @@ class App(ctk.CTk):
     #  Olay işleyicileri
     # ─────────────────────────────────────────────
     def _on_type(self, value: str):
-        if "Video" in value:
+        if value == self._type_video_label:
             self._media_type = "video"
             self._fmt = self._vfmt_seg.get().lower()
             self._afmt_frame.grid_remove()
@@ -809,53 +1057,170 @@ class App(ctk.CTk):
             try:
                 text = fn()
                 if text and text.strip():
-                    self.url_entry.delete(0, "end")
-                    self.url_entry.insert(0, text.strip())
+                    self._set_url_text(text.strip())
                     return
             except Exception:
                 continue
+
+    def _clear_widget_text(self, widget):
+        try:
+            widget.delete("1.0", "end")
+        except Exception:
+            try:
+                widget.delete(0, "end")
+            except Exception:
+                pass
+
+    def _set_url_text(self, text: str):
+        self._clear_widget_text(self.url_entry)
+        self.url_entry.insert("1.0", text)
+
+    def _get_url_text(self) -> str:
+        try:
+            return self.url_entry.get("1.0", "end").strip()
+        except Exception:
+            return self.url_entry.get().strip()
+
+    def _clear_url_text(self):
+        self._clear_widget_text(self.url_entry)
+        try:
+            self.url_entry.focus_set()
+        except Exception:
+            pass
+
+    def _open_path(self, path: str):
+        if not path:
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", path], check=False)
+            else:
+                subprocess.run(["xdg-open", path], check=False)
+        except Exception:
+            pass
+
+    def _open_last_folder(self):
+        if not self._last_download_path:
+            return
+        folder = os.path.dirname(self._last_download_path) or self._download_folder
+        self._open_path(folder)
+
+    def _bind_track_open(self, idx: int, path: str):
+        row = self._track_rows.get(idx)
+        if not row:
+            return
+        self._track_files[idx] = path
+
+        def _open(_event=None):
+            self._open_path(path)
+
+        for widget in (row, row._title, row._info, row._icon):
+            widget.bind("<Button-1>", _open)
+
+    def _open_ffmpeg_download(self, _event=None):
+        try:
+            webbrowser.open(FFMPEG_DOWNLOAD_URL)
+        except Exception:
+            pass
 
     # ─────────────────────────────────────────────
     #  İndirme başlat
     # ─────────────────────────────────────────────
     def start_download(self):
-        url = self.url_entry.get().strip()
-        if not url:
+        raw = self._get_url_text()
+        if not raw:
+            return
+        urls = [u.strip() for u in raw.splitlines() if u.strip()]
+        if not urls:
+            return
+        valid_count = sum(1 for u in urls if is_valid_download_url(u))
+        if valid_count == 0:
+            self._s_status.configure(text=self._tr("status.invalid_url"), text_color=self.C_ERR)
+            return
+        if any(has_url(u) for u in urls):
+            proceed = messagebox.askyesno(
+                self._tr("dialog.duplicate_title"),
+                self._tr("dialog.duplicate_message"),
+            )
+            if not proceed:
+                return
+        if not has_internet_connection():
+            self._s_status.configure(text=self._tr("status.no_internet"), text_color=self.C_ERR)
             return
 
         for w in self._pl_scroll.winfo_children():
             w.destroy()
         self._track_rows.clear()
+        self._track_files.clear()
         self._current_dl_idx = None
         self._pl_total = 0
+        self._last_download_path = ""
         self._pl_scroll.grid_remove()
         self._pl_empty.grid()
+        self._open_folder_btn.grid_remove()
+        self._batch_total = len(urls)
+        self._batch_index = 0
+        self._batch_urls = {idx: u for idx, u in enumerate(urls, start=1)}
 
         self._dl_btn.configure(
-            state="disabled",
-            text="⏳  İndiriliyor...",
-            fg_color="#4a0e0e",
+            text=self._tr("button.cancel"),
+            fg_color="#875a12",
+            hover_color="#a96f17",
         )
+        self._is_downloading = True
+        self._cancel_event.clear()
         self._prog_bar.set(0)
         self._s_pct.configure(text="0.0%", text_color="#909090")
-        self._s_speed.configure(text="─")
-        self._s_eta.configure(text="─")
-        self._s_size.configure(text="─")
-        self._s_status.configure(text="─", text_color="#909090")
+        self._s_speed.configure(text=self._tr("status.idle"))
+        self._s_eta.configure(text=self._tr("status.idle"))
+        self._s_size.configure(text=self._tr("status.idle"))
+        self._s_status.configure(text=self._tr("status.idle"), text_color="#909090")
 
-        threading.Thread(target=self._worker, args=(url,), daemon=True).start()
+        threading.Thread(target=self._worker, args=(urls,), daemon=True).start()
+
+    def cancel_download(self):
+        if not self._is_downloading:
+            return
+        self._cancel_event.set()
+        self._s_status.configure(text=self._tr("status.cancelling"), text_color="#f0ad4e")
+
+    def _record_history(self, info: dict, filename: str):
+        file_path = filename or ""
+        source_url = (
+            info.get("webpage_url")
+            or info.get("original_url")
+            or info.get("url")
+            or self._batch_urls.get(self._batch_index, "")
+        )
+        title = info.get("title", "")
+        file_size = None
+        if file_path and os.path.isfile(file_path):
+            try:
+                file_size = os.path.getsize(file_path)
+            except OSError:
+                file_size = None
+        append_history({
+            "url": source_url,
+            "title": title,
+            "format_quality": f"{self._media_type}:{self._fmt}",
+            "download_date": datetime.now().isoformat(timespec="seconds"),
+            "file_path": file_path,
+            "file_size": file_size,
+        })
 
     # ─────────────────────────────────────────────
     #  Arka plan worker
     # ─────────────────────────────────────────────
-    def _worker(self, url: str):
+    def _worker(self, urls: list[str]):
         output_dir = self._out_entry.get().strip() or self._download_folder
         fmt = self._fmt
 
         try:
             import yt_dlp
         except ImportError:
-            self._q("done", False)
+            self._q("done", False, self._tr("error.ytdlp_missing"))
             return
 
         ydl_opts = {
@@ -868,20 +1233,59 @@ class App(ctk.CTk):
                 "default": "%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s",
             },
             "writethumbnail": False,
-            "ignoreerrors":   True,
+            "ignoreerrors":   False,
         }
+        if self._ffmpeg_location:
+            ydl_opts["ffmpeg_location"] = self._ffmpeg_location
 
         if self._media_type == "video":
             self._build_video_opts(ydl_opts, fmt)
         else:
             self._build_audio_opts(ydl_opts, fmt)
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ret = ydl.download([url])
-            self._q("done", ret == 0)
-        except Exception:
-            self._q("done", False)
+        total = len(urls)
+        success_count = 0
+        had_error = False
+        last_error_msg = self._tr("error.download")
+        for idx, url in enumerate(urls, start=1):
+            if self._cancel_event.is_set():
+                self._q("done", False, self._tr("status.cancelled"), True)
+                return
+
+            self._batch_index = idx
+            self._batch_total = total
+            self._q("track_start", idx, total, url)
+            if not is_valid_download_url(url):
+                had_error = True
+                last_error_msg = self._tr("status.invalid_url")
+                self._q("track_error", idx)
+                continue
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ret = ydl.download([url])
+                if ret == 0:
+                    success_count += 1
+                else:
+                    had_error = True
+                    last_error_msg = self._tr("error.download")
+                    self._q("track_error", idx)
+            except yt_dlp.utils.DownloadCancelled:
+                self._q("track_error", idx)
+                self._q("done", False, self._tr("status.cancelled"), True)
+                return
+            except Exception as exc:
+                had_error = True
+                self._q("track_error", idx)
+                if self._cancel_event.is_set():
+                    self._q("done", False, self._tr("status.cancelled"), True)
+                    return
+                last_error_msg = self._tr(map_download_exception_key(exc))
+                self._q("progress", (0.0, "─", "─", "─"))
+
+        if success_count == total and not had_error:
+            self._q("done", True)
+        else:
+            self._q("done", False, last_error_msg)
 
     def _build_video_opts(self, opts: dict, fmt: str):
         res    = self._res_var.get()
@@ -890,13 +1294,13 @@ class App(ctk.CTk):
         hdr    = self._hdr_var.get()
 
         h = "9999"
-        if res != "En İyi":
+        if res != self._tr("opt.best"):
             m = re.search(r"(\d+)p", res)
             if m:
                 h = m.group(1)
 
         vc_map = {
-            "Otomatik":    "",
+            self._tr("opt.auto"): "",
             "h264 (AVC)":  "[vcodec^=avc]",
             "h265 (HEVC)": "[vcodec^=hev]",
             "VP9":         "[vcodec^=vp9]",
@@ -905,9 +1309,9 @@ class App(ctk.CTk):
         vc    = vc_map.get(vcodec, "")
         hdr_f = (
             "[dynamic_range!=HDR10][dynamic_range!=HLG][dynamic_range!=DV]"
-            if hdr == "Yalnız SDR" else ""
+            if hdr == self._tr("opt.hdr_sdr_only") else ""
         )
-        fps_f = f"[fps<={fps}]" if fps != "Sınırsız" else ""
+        fps_f = f"[fps<={fps}]" if fps != self._tr("opt.unlimited") else ""
 
         opts["format"] = (
             f"bestvideo[height<={h}]{fps_f}{vc}{hdr_f}"
@@ -920,7 +1324,7 @@ class App(ctk.CTk):
         sr       = self._samplerate_var.get()
         channels = self._channels_var.get()
 
-        bitrate = "0" if quality == "En İyi (VBR)" else quality.replace("k", "")
+        bitrate = "0" if quality == self._tr("opt.audio_best_vbr") else quality.replace("k", "")
 
         opts["format"]         = "bestaudio/best"
         opts["postprocessors"] = [{
@@ -930,11 +1334,11 @@ class App(ctk.CTk):
         }]
 
         extra: list = []
-        if sr != "Otomatik":
+        if sr != self._tr("opt.auto"):
             extra += ["-ar", sr.replace(" Hz", "")]
-        if channels == "Stereo (2)":
+        if channels == self._tr("opt.channel_stereo"):
             extra += ["-ac", "2"]
-        elif channels == "Mono (1)":
+        elif channels == self._tr("opt.channel_mono"):
             extra += ["-ac", "1"]
         if extra:
             opts["postprocessor_args"] = {"FFmpegExtractAudio": extra}
@@ -943,6 +1347,11 @@ class App(ctk.CTk):
     #  Progress hook (arka plan thread'inden)
     # ─────────────────────────────────────────────
     def _progress_hook(self, d: dict):
+        if self._cancel_event.is_set():
+            import yt_dlp
+
+            raise yt_dlp.utils.DownloadCancelled()
+
         def clean(s: str) -> str:
             return re.sub(r"\x1b\[[0-9;]*m", "", s or "─").strip()
 
@@ -950,6 +1359,8 @@ class App(ctk.CTk):
         idx   = info.get("playlist_index")
         total = info.get("n_entries")
         title = info.get("title", "")
+        batch_idx = self._batch_index
+        batch_total = self._batch_total
 
         if d["status"] == "downloading":
             raw_pct = clean(d.get("_percent_str", "0%"))
@@ -972,13 +1383,22 @@ class App(ctk.CTk):
                     self._q("track_start", idx, total, title)
                 else:
                     self._q("track_pct", idx, pct)
+            elif batch_total > 1 and batch_idx:
+                self._q("track_pct", batch_idx, pct)
 
         elif d["status"] == "finished":
-            fn = os.path.basename(d.get("filename", ""))
+            full_path = d.get("filename", "")
+            fn = os.path.basename(full_path)
+            try:
+                self._record_history(info, full_path)
+            except Exception:
+                pass
             if idx and total:
-                self._q("track_done", idx, title, fn)
+                self._q("track_done", idx, title, fn, full_path)
+            elif batch_total > 1 and batch_idx:
+                self._q("track_done", batch_idx, title or full_path, fn, full_path)
             else:
-                self._q("single_done", title, fn)
+                self._q("single_done", title, fn, full_path)
 
 
 # ─────────────────────────────────────────────────
