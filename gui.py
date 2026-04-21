@@ -31,6 +31,104 @@ ctk.set_default_color_theme("dark-blue")
 __version__ = "3.1.0"
 
 
+def resolve_theme_palette(mode: str) -> dict[str, str]:
+    mode = (mode or "dark").lower()
+    if mode == "light":
+        return {
+            "window_bg": "#f4efe7",
+            "card_bg": "#fffaf2",
+            "card_edge": "#d9d1c6",
+            "card_title": "#7b6659",
+            "text_primary": "#201815",
+            "text_secondary": "#5c4a3f",
+            "text_muted": "#7d6a5e",
+            "text_subtle": "#9d8b80",
+            "title_accent": "#c83c2f",
+            "title_text": "#201815",
+            "dot": "#9d8b80",
+            "input_bg": "#f2ebe2",
+            "input_border": "#d6c9bb",
+            "input_text": "#201815",
+            "button_bg": "#e6ddd1",
+            "button_hover": "#dacdbf",
+            "button_text": "#2e2420",
+            "danger": "#c83c2f",
+            "danger_hover": "#e04a3d",
+            "warning": "#a66a12",
+            "warning_hover": "#bf7b17",
+            "warning_text": "#fff5d6",
+            "accent": "#b4583c",
+            "accent_hover": "#c96a4d",
+            "accent_soft": "#d78861",
+            "accent_soft_hover": "#c67350",
+            "accent_text": "#fff8f2",
+            "success": "#2e8b57",
+            "error": "#c83c2f",
+            "progress_track": "#d7cec2",
+            "info_bg": "#efe3d8",
+            "info_edge": "#d2bcab",
+            "warning_bg": "#f2ddb0",
+            "warning_fg": "#6f4c00",
+            "track_bg": "#f8f2ea",
+            "track_badge_bg": "#ede3d8",
+            "track_active_bg": "#f2e4d7",
+            "track_active_edge": "#d0b39d",
+            "track_pending": "#7f7367",
+            "track_done": "#2e8b57",
+            "track_error": "#c83c2f",
+            "menu_bg": "#fff7ef",
+            "menu_hover": "#eadccf",
+            "menu_fg": "#201815",
+        }
+
+    return {
+        "window_bg": "#0d0d0d",
+        "card_bg": "#131313",
+        "card_edge": "#222222",
+        "card_title": "#8b8178",
+        "text_primary": "#f2ede6",
+        "text_secondary": "#c5b9ac",
+        "text_muted": "#9a8d81",
+        "text_subtle": "#6f655d",
+        "title_accent": "#e53935",
+        "title_text": "#f2ede6",
+        "dot": "#505050",
+        "input_bg": "#1c1c1c",
+        "input_border": "#252525",
+        "input_text": "#efe8df",
+        "button_bg": "#222222",
+        "button_hover": "#333333",
+        "button_text": "#d0c4b7",
+        "danger": "#c62828",
+        "danger_hover": "#e53935",
+        "warning": "#875a12",
+        "warning_hover": "#a96f17",
+        "warning_text": "#f7cf8c",
+        "accent": "#b4583c",
+        "accent_hover": "#ca6a4d",
+        "accent_soft": "#7d3f2b",
+        "accent_soft_hover": "#94503a",
+        "accent_text": "#fff3e8",
+        "success": "#4caf50",
+        "error": "#ef5350",
+        "progress_track": "#3b3b3b",
+        "info_bg": "#161c28",
+        "info_edge": "#1e3050",
+        "warning_bg": "#6c5600",
+        "warning_fg": "#fff2a8",
+        "track_bg": "#161616",
+        "track_badge_bg": "#1c1c1c",
+        "track_active_bg": "#161c28",
+        "track_active_edge": "#1e3050",
+        "track_pending": "#707070",
+        "track_done": "#66bb6a",
+        "track_error": "#ef5350",
+        "menu_bg": "#1c1c1c",
+        "menu_hover": "#333333",
+        "menu_fg": "#d0d0d0",
+    }
+
+
 # ─────────────────────────────────────────────────
 #  yt-dlp logger (sessiz — ui'a yansıtmıyoruz)
 # ─────────────────────────────────────────────────
@@ -56,39 +154,27 @@ class _Logger:
 # ─────────────────────────────────────────────────
 class TrackRow(ctk.CTkFrame):
     _ICON  = {"pending": "⏳", "downloading": "⬇", "done": "✓", "error": "✗"}
-    _COLOR = {
-        "pending":     "#707070",
-        "downloading": "#42A5F5",
-        "done":        "#66BB6A",
-        "error":       "#EF5350",
-    }
-    _TITLE_COLOR = {
-        "pending":     "#888888",
-        "downloading": "white",
-        "done":        "#b0b0b0",
-        "error":       "#EF5350",
-    }
-
-    def __init__(self, parent, idx: int, title: str, **kwargs):
+    def __init__(self, parent, idx: int, title: str, palette: dict[str, str], **kwargs):
+        self._palette = palette
         super().__init__(
             parent,
             corner_radius=8,
-            fg_color=("#161616", "#161616"),
+            fg_color=self._palette["track_bg"],
             border_width=1,
-            border_color=("#222222", "#222222"),
+            border_color=self._palette["card_edge"],
             **kwargs,
         )
         self.grid_columnconfigure(2, weight=1)
 
         # ── Index badge
-        badge = ctk.CTkFrame(self, fg_color=("#1c1c1c", "#1c1c1c"), corner_radius=5, width=42, height=28)
+        badge = ctk.CTkFrame(self, fg_color=self._palette["track_badge_bg"], corner_radius=5, width=42, height=28)
         badge.grid(row=0, column=0, padx=(12, 8), pady=11)
         badge.grid_propagate(False)
         ctk.CTkLabel(
             badge,
             text=f"{idx:03d}",
             font=ctk.CTkFont(size=12, family="Consolas"),
-            text_color="#666666",
+            text_color=self._palette["text_subtle"],
         ).place(relx=0.5, rely=0.5, anchor="center")
 
         # ── Status icon
@@ -96,7 +182,7 @@ class TrackRow(ctk.CTkFrame):
             self,
             text="⏳",
             font=ctk.CTkFont(size=16),
-            text_color="#707070",
+            text_color=self._palette["track_pending"],
             width=24,
         )
         self._icon.grid(row=0, column=1, padx=(0, 10))
@@ -107,7 +193,7 @@ class TrackRow(ctk.CTkFrame):
             self,
             text=short,
             font=ctk.CTkFont(size=14),
-            text_color="#888888",
+            text_color=self._palette["text_muted"],
             anchor="w",
         )
         self._title.grid(row=0, column=2, sticky="ew")
@@ -117,7 +203,7 @@ class TrackRow(ctk.CTkFrame):
             self,
             text="",
             font=ctk.CTkFont(size=12, family="Consolas"),
-            text_color="#888888",
+            text_color=self._palette["text_muted"],
             width=200,
             anchor="e",
         )
@@ -129,8 +215,18 @@ class TrackRow(ctk.CTkFrame):
 
     def update_status(self, status: str, pct: float = 0.0, extra: str = ""):
         icon  = self._ICON.get(status, "?")
-        color = self._COLOR.get(status, "#707070")
-        tc    = self._TITLE_COLOR.get(status, "#888888")
+        color = {
+            "pending": self._palette["track_pending"],
+            "downloading": self._palette["accent"],
+            "done": self._palette["track_done"],
+            "error": self._palette["track_error"],
+        }.get(status, self._palette["track_pending"])
+        tc = {
+            "pending": self._palette["text_muted"],
+            "downloading": self._palette["text_primary"],
+            "done": self._palette["text_secondary"],
+            "error": self._palette["track_error"],
+        }.get(status, self._palette["text_muted"])
 
         self._icon.configure(text=icon, text_color=color)
         self._title.configure(text_color=tc)
@@ -140,26 +236,26 @@ class TrackRow(ctk.CTkFrame):
             bar = "█" * filled + "░" * (20 - filled)
             self._info.configure(
                 text=f"{pct * 100:5.1f}%  {bar}",
-                text_color="#42A5F5",
+                text_color=self._palette["accent"],
             )
             self.configure(
-                fg_color=("#161c28", "#161c28"),
-                border_color=("#1e3050", "#1e3050"),
+                fg_color=self._palette["track_active_bg"],
+                border_color=self._palette["track_active_edge"],
             )
         elif status == "done":
-            self._info.configure(text=extra or "✓", text_color="#4CAF50")
+            self._info.configure(text=extra or "✓", text_color=self._palette["track_done"])
             self.configure(
-                fg_color=("#161616", "#161616"),
-                border_color=("#222222", "#222222"),
+                fg_color=self._palette["track_bg"],
+                border_color=self._palette["card_edge"],
             )
         elif status == "error":
-            self._info.configure(text="error", text_color="#EF5350")
-            self.configure(border_color=("#3d1a1a", "#3d1a1a"))
+            self._info.configure(text="error", text_color=self._palette["track_error"])
+            self.configure(border_color=self._palette["track_error"])
         else:
             self._info.configure(text="")
             self.configure(
-                fg_color=("#161616", "#161616"),
-                border_color=("#222222", "#222222"),
+                fg_color=self._palette["track_bg"],
+                border_color=self._palette["card_edge"],
             )
 
 
@@ -168,19 +264,6 @@ class TrackRow(ctk.CTkFrame):
 # ─────────────────────────────────────────────────
 class App(ctk.CTk):
     # ── Renk paleti ──
-    C_RED       = "#C62828"
-    C_RED_HOV   = "#E53935"
-    C_BTN       = ("#222222", "#222222")
-    C_BTN_HOV   = ("#333333", "#333333")
-    C_SUCCESS   = "#4CAF50"
-    C_ERR       = "#EF5350"
-    C_OPT_BG   = ("#1c1c1c", "#1c1c1c")
-    C_OPT_BTN  = ("#2a2a2a", "#2a2a2a")
-    C_OPT_HOV  = ("#3a3a3a", "#3a3a3a")
-    C_OPT_DRP  = ("#181818", "#181818")
-    C_CARD_BG  = ("#131313", "#131313")
-    C_BORDER   = ("#222222", "#222222")
-
     # Tam ekranda içerik genişliği
     MAX_W = 1400
 
@@ -193,11 +276,12 @@ class App(ctk.CTk):
         if self._theme not in {"dark", "light", "system"}:
             self._theme = "dark"
         ctk.set_appearance_mode(self._theme)
+        self._apply_theme_palette()
         self.title(self._tr("app.title"))
         self.geometry("960x880")
         self.minsize(700, 640)
         self.resizable(True, True)
-        self.configure(fg_color=("#0d0d0d", "#0d0d0d"))
+        self.configure(fg_color=self._palette["window_bg"])
 
         self._download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
         self._log_queue: queue.Queue = queue.Queue()
@@ -259,6 +343,36 @@ class App(ctk.CTk):
             self._tr("theme.system"): "system",
         }
 
+    def _active_theme_mode(self) -> str:
+        return "light" if ctk.get_appearance_mode().lower() == "light" else "dark"
+
+    def _apply_theme_palette(self):
+        self._palette = resolve_theme_palette(self._active_theme_mode())
+        self.C_RED = self._palette["danger"]
+        self.C_RED_HOV = self._palette["danger_hover"]
+        self.C_BTN = self._palette["button_bg"]
+        self.C_BTN_HOV = self._palette["button_hover"]
+        self.C_SUCCESS = self._palette["success"]
+        self.C_ERR = self._palette["error"]
+        self.C_OPT_BG = self._palette["input_bg"]
+        self.C_OPT_BTN = self._palette["button_bg"]
+        self.C_OPT_HOV = self._palette["button_hover"]
+        self.C_OPT_DRP = self._palette["card_bg"]
+        self.C_CARD_BG = self._palette["card_bg"]
+        self.C_BORDER = self._palette["card_edge"]
+        self.configure(fg_color=self._palette["window_bg"])
+
+    def _style_segmented_button(self, widget: ctk.CTkSegmentedButton):
+        widget.configure(
+            fg_color=self._palette["input_bg"],
+            unselected_color=self._palette["input_bg"],
+            unselected_hover_color=self._palette["button_hover"],
+            selected_color=self._palette["accent_soft"],
+            selected_hover_color=self._palette["accent_hover"],
+            text_color=self._palette["button_text"],
+            text_color_disabled=self._palette["text_subtle"],
+        )
+
     def _set_language(self, choice: str):
         lang = self._language_choices().get(choice)
         if not lang or lang == self._lang:
@@ -277,7 +391,9 @@ class App(ctk.CTk):
         self._theme = theme
         self._config["theme"] = theme
         ctk.set_appearance_mode(theme)
+        self._apply_theme_palette()
         save_config(self._config)
+        self._rebuild_ui()
 
     def _rebuild_ui(self):
         for child in self._container.winfo_children():
@@ -288,6 +404,7 @@ class App(ctk.CTk):
         self._pl_total = 0
         self._last_download_path = ""
         self.title(self._tr("app.title"))
+        self._apply_theme_palette()
         self._build_all()
         self._bind_shortcuts()
 
@@ -338,7 +455,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(
                 card, text=title,
                 font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#808080",
+                text_color=self._palette["card_title"],
             ).grid(row=0, column=0, padx=18, pady=(12, 2), sticky="w")
         return card
 
@@ -350,7 +467,7 @@ class App(ctk.CTk):
             button_color=self.C_OPT_BTN,
             button_hover_color=self.C_OPT_HOV,
             dropdown_fg_color=self.C_OPT_DRP,
-            text_color=("#d0d0d0", "#d0d0d0"),
+            text_color=self._palette["button_text"],
             font=ctk.CTkFont(size=13),
         )
         m.grid(**gkw)
@@ -372,8 +489,8 @@ class App(ctk.CTk):
             return
         menu = tk.Menu(
             self, tearoff=0,
-            bg="#1c1c1c", fg="#d0d0d0",
-            activebackground="#333333", activeforeground="white",
+            bg=self._palette["menu_bg"], fg=self._palette["menu_fg"],
+            activebackground=self._palette["menu_hover"], activeforeground=self._palette["text_primary"],
             font=("Segoe UI", 10),
             relief="flat", bd=1,
         )
@@ -459,40 +576,76 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             title_frame, text="YT",
             font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#E53935",
+            text_color=self._palette["title_accent"],
         ).pack(side="left")
 
         ctk.CTkLabel(
             title_frame, text=" Downloader",
             font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#e0e0e0",
+            text_color=self._palette["title_text"],
         ).pack(side="left")
 
-        info_frame = ctk.CTkFrame(hf, fg_color="transparent")
-        info_frame.grid(row=0, column=1, sticky="e")
+        right_frame = ctk.CTkFrame(hf, fg_color="transparent")
+        right_frame.grid(row=0, column=1, sticky="e")
+
+        info_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        info_frame.grid(row=0, column=0, sticky="e")
 
         ctk.CTkLabel(
             info_frame, text=f"v{__version__}",
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#606060",
+            text_color=self._palette["text_subtle"],
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(
             info_frame, text="•",
             font=ctk.CTkFont(size=13),
-            text_color="#505050",
+            text_color=self._palette["dot"],
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(
             info_frame, text=self._tr("header.engine"),
             font=ctk.CTkFont(size=13),
-            text_color="#606060",
+            text_color=self._palette["text_subtle"],
         ).pack(side="left")
+
+        self._header_pref_bar = ctk.CTkFrame(
+            right_frame,
+            fg_color=self._palette["card_bg"],
+            corner_radius=10,
+            border_width=1,
+            border_color=self._palette["card_edge"],
+        )
+        self._header_pref_bar.grid(row=1, column=0, pady=(10, 0), sticky="e")
+
+        theme_choices = self._theme_choices()
+        selected_theme = next((name for name, code in theme_choices.items() if code == self._theme), list(theme_choices)[0])
+        self._theme_var = ctk.StringVar(value=selected_theme)
+        self._theme_menu = self._build_header_pref_selector(
+            self._header_pref_bar,
+            0,
+            self._tr("label.theme"),
+            list(theme_choices.keys()),
+            self._theme_var,
+            self._set_theme,
+        )
+
+        language_choices = self._language_choices()
+        selected_lang = next((name for name, code in language_choices.items() if code == self._lang), list(language_choices)[0])
+        self._lang_var = ctk.StringVar(value=selected_lang)
+        self._lang_menu = self._build_header_pref_selector(
+            self._header_pref_bar,
+            1,
+            self._tr("label.language"),
+            list(language_choices.keys()),
+            self._lang_var,
+            self._set_language,
+        )
 
         if not self._ffmpeg_available:
             warn = ctk.CTkFrame(
                 hf,
-                fg_color=("#6c5600", "#6c5600"),
+                fg_color=self._palette["warning_bg"],
                 corner_radius=8,
             )
             warn.grid(row=1, column=0, columnspan=2, pady=(12, 0), sticky="ew")
@@ -502,7 +655,7 @@ class App(ctk.CTk):
                 warn,
                 text="⚠",
                 font=ctk.CTkFont(size=15, weight="bold"),
-                text_color="#fff2a8",
+                text_color=self._palette["warning_fg"],
             )
             icon.grid(row=0, column=0, padx=(10, 8), pady=8)
 
@@ -510,7 +663,7 @@ class App(ctk.CTk):
                 warn,
                 text=self._tr("warning.ffmpeg_missing"),
                 font=ctk.CTkFont(size=12),
-                text_color="#fff2a8",
+                text_color=self._palette["warning_fg"],
                 anchor="w",
                 justify="left",
             )
@@ -520,6 +673,19 @@ class App(ctk.CTk):
                 widget.bind("<Button-1>", self._open_ffmpeg_download)
 
     # ── URL ─────────────────────────────────────
+    def _build_header_pref_selector(self, parent, column: int, label: str, values, variable, command):
+        wrapper = ctk.CTkFrame(parent, fg_color="transparent")
+        wrapper.grid(row=0, column=column, padx=(12, 12), pady=10, sticky="ew")
+        ctk.CTkLabel(
+            wrapper,
+            text=label,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=self._palette["card_title"],
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        menu = self._omenu(wrapper, values, variable, row=1, column=0, sticky="ew")
+        menu.configure(width=148, height=34, command=command)
+        return menu
+
     def _build_url(self):
         card = self._card(1)
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -530,13 +696,13 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             inner, text=self._tr("url.label"),
             font=ctk.CTkFont(size=12, weight="bold"),
-            text_color="#808080",
+            text_color=self._palette["card_title"],
         ).grid(row=0, column=0, sticky="w", pady=(0, 8), columnspan=2)
         ctk.CTkLabel(
             inner,
             text=self._tr("url.placeholder"),
             font=ctk.CTkFont(size=11),
-            text_color="#575757",
+            text_color=self._palette["text_subtle"],
         ).grid(row=1, column=0, sticky="w", pady=(0, 6), columnspan=2)
 
         row = ctk.CTkFrame(inner, fg_color="transparent")
@@ -545,11 +711,13 @@ class App(ctk.CTk):
 
         self.url_entry = ctk.CTkTextbox(
             row,
-            height=88,
+            height=82,
             font=ctk.CTkFont(size=14),
             corner_radius=8,
             border_width=1,
-            border_color=("#252525", "#252525"),
+            fg_color=self._palette["input_bg"],
+            border_color=self._palette["input_border"],
+            text_color=self._palette["input_text"],
         )
         self.url_entry.grid(row=0, column=0, sticky="ew")
         self.url_entry.insert("1.0", "")
@@ -564,16 +732,16 @@ class App(ctk.CTk):
             command=self._paste, corner_radius=8,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=14),
-            text_color="#c0c0c0",
+            text_color=self._palette["button_text"],
         ).pack(side="left", padx=(0, 5))
 
         ctk.CTkButton(
             btns, text="✕", width=46, height=46,
             command=self._clear_url_text,
             corner_radius=8,
-            fg_color=self.C_BTN, hover_color=("#3d1a1a", "#3d1a1a"),
+            fg_color=self.C_BTN, hover_color=self.C_RED_HOV,
             font=ctk.CTkFont(size=16),
-            text_color="#c0c0c0",
+            text_color=self._palette["button_text"],
         ).pack(side="left")
 
     # ── Tür + Format (tek kart) ──────────────────
@@ -588,7 +756,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             inner, text=self._tr("label.type"),
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#909090", width=60,
+            text_color=self._palette["card_title"], width=60,
         ).grid(row=0, column=0, sticky="w", padx=(0, 14))
 
         self._type_seg = ctk.CTkSegmentedButton(
@@ -600,18 +768,19 @@ class App(ctk.CTk):
             corner_radius=8,
         )
         default_type = self._type_audio_label if self._media_type == "audio" else self._type_video_label
+        self._style_segmented_button(self._type_seg)
         self._type_seg.set(default_type)
         self._type_seg.grid(row=0, column=1, sticky="ew")
 
         # Separator
-        sep = ctk.CTkFrame(inner, fg_color=("#1e1e1e", "#1e1e1e"), height=1)
+        sep = ctk.CTkFrame(inner, fg_color=self._palette["card_edge"], height=1)
         sep.grid(row=1, column=0, columnspan=2, sticky="ew", pady=14)
 
         # Format
         ctk.CTkLabel(
             inner, text=self._tr("label.format"),
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#909090", width=60,
+            text_color=self._palette["card_title"], width=60,
         ).grid(row=2, column=0, sticky="w", padx=(0, 14))
 
         # Video formatları
@@ -624,6 +793,7 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=14), height=38,
             corner_radius=8,
         )
+        self._style_segmented_button(self._vfmt_seg)
         self._vfmt_seg.set("MP4")
         self._vfmt_seg.pack(fill="x")
 
@@ -637,13 +807,15 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=14), height=38,
             corner_radius=8,
         )
+        self._style_segmented_button(self._afmt_seg)
         self._afmt_seg.set("MP3")
         self._afmt_seg.pack(fill="x")
         self._afmt_frame.grid_remove()
 
     # ── Ayarlar ──────────────────────────────────
     def _build_options(self):
-        card = self._card(3, self._tr("card.settings"))
+        self._settings_card = self._card(3, self._tr("card.settings"))
+        card = self._settings_card
 
         # ── Video ayarları
         self._v_opts = ctk.CTkFrame(card, fg_color="transparent")
@@ -675,7 +847,7 @@ class App(ctk.CTk):
             px = (0 if col == 0 else 8, 0)
             ctk.CTkLabel(
                 self._v_opts, text=lbl,
-                font=ctk.CTkFont(size=12), text_color="#909090",
+                font=ctk.CTkFont(size=12), text_color=self._palette["text_muted"],
             ).grid(row=0, column=col, padx=px, sticky="w", pady=(0, 6))
             self._omenu(self._v_opts, vals, var,
                         row=1, column=col, padx=px, sticky="ew")
@@ -705,56 +877,13 @@ class App(ctk.CTk):
             px = (0 if col == 0 else 8, 0)
             ctk.CTkLabel(
                 self._a_opts, text=lbl,
-                font=ctk.CTkFont(size=12), text_color="#909090",
+                font=ctk.CTkFont(size=12), text_color=self._palette["text_muted"],
             ).grid(row=0, column=col, padx=px, sticky="w", pady=(0, 6))
             self._omenu(self._a_opts, vals, var,
                         row=1, column=col, padx=px, sticky="ew")
 
         self._a_opts.grid_remove()
 
-        theme_row = ctk.CTkFrame(card, fg_color="transparent")
-        theme_row.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
-        theme_row.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            theme_row,
-            text=self._tr("label.theme"),
-            font=ctk.CTkFont(size=12),
-            text_color="#909090",
-        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
-        theme_choices = self._theme_choices()
-        selected_theme = next((name for name, code in theme_choices.items() if code == self._theme), list(theme_choices)[0])
-        self._theme_var = ctk.StringVar(value=selected_theme)
-        theme_menu = self._omenu(
-            theme_row,
-            list(theme_choices.keys()),
-            self._theme_var,
-            row=0,
-            column=1,
-            sticky="e",
-        )
-        theme_menu.configure(command=self._set_theme)
-
-        lang_row = ctk.CTkFrame(card, fg_color="transparent")
-        lang_row.grid(row=3, column=0, padx=16, pady=(0, 14), sticky="ew")
-        lang_row.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            lang_row,
-            text=self._tr("label.language"),
-            font=ctk.CTkFont(size=12),
-            text_color="#909090",
-        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
-        choices = self._language_choices()
-        selected = next((name for name, code in choices.items() if code == self._lang), list(choices)[0])
-        self._lang_var = ctk.StringVar(value=selected)
-        lang_menu = self._omenu(
-            lang_row,
-            list(choices.keys()),
-            self._lang_var,
-            row=0,
-            column=1,
-            sticky="e",
-        )
-        lang_menu.configure(command=self._set_language)
 
     # ── Kayıt Yeri ───────────────────────────────
     def _build_save_path(self):
@@ -768,8 +897,9 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=13),
             corner_radius=8,
             border_width=1,
-            border_color=("#252525", "#252525"),
-            text_color="#c0c0c0",
+            fg_color=self._palette["input_bg"],
+            border_color=self._palette["input_border"],
+            text_color=self._palette["input_text"],
         )
         self._out_entry.insert(0, self._download_folder)
         self._out_entry.grid(row=0, column=0, sticky="ew")
@@ -780,7 +910,7 @@ class App(ctk.CTk):
             command=self._browse, corner_radius=8,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=13),
-            text_color="#c0c0c0",
+            text_color=self._palette["button_text"],
         ).grid(row=0, column=1, padx=(8, 0))
 
     # ── İndir Butonu ─────────────────────────────
@@ -794,7 +924,7 @@ class App(ctk.CTk):
             fg_color=self.C_RED,
             hover_color=self.C_RED_HOV,
             corner_radius=10,
-            text_color="white",
+            text_color=self._palette["accent_text"],
         )
         self._dl_btn.grid(row=5, column=0, padx=0, pady=(8, 4), sticky="ew")
 
@@ -814,7 +944,8 @@ class App(ctk.CTk):
 
         self._prog_bar = ctk.CTkProgressBar(
             prog_container, height=12, corner_radius=6,
-            progress_color=("#E53935", "#E53935"),
+            fg_color=self._palette["progress_track"],
+            progress_color=self.C_RED_HOV,
         )
         self._prog_bar.grid(row=0, column=0, sticky="ew")
         self._prog_bar.set(0)
@@ -829,7 +960,7 @@ class App(ctk.CTk):
             return ctk.CTkLabel(
                 stats, text=text,
                 font=ctk.CTkFont(size=14, weight="bold" if bold else "normal"),
-                text_color="#909090",
+                text_color=self._palette["text_muted"],
             )
 
         self._s_pct    = sl("0.0%", bold=True)
@@ -853,7 +984,7 @@ class App(ctk.CTk):
             fg_color=self.C_BTN,
             hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=13),
-            text_color="#c0c0c0",
+            text_color=self._palette["button_text"],
         )
         self._open_folder_btn.grid(row=2, column=0, padx=16, pady=(0, 10), sticky="e")
         self._open_folder_btn.grid_remove()
@@ -870,21 +1001,21 @@ class App(ctk.CTk):
             self._pl_empty,
             text="⬇",
             font=ctk.CTkFont(size=32),
-            text_color="#404040",
+            text_color=self._palette["text_subtle"],
         ).pack(pady=(0, 8))
 
         ctk.CTkLabel(
             self._pl_empty,
             text=self._tr("track.empty.title"),
             font=ctk.CTkFont(size=15, weight="bold"),
-            text_color="#606060",
+            text_color=self._palette["text_muted"],
         ).pack()
 
         ctk.CTkLabel(
             self._pl_empty,
             text=self._tr("track.empty.subtitle"),
             font=ctk.CTkFont(size=13),
-            text_color="#484848",
+            text_color=self._palette["text_subtle"],
         ).pack(pady=(4, 0))
 
         # Scrollable liste
@@ -928,7 +1059,7 @@ class App(ctk.CTk):
                         self._track_rows[idx].update_status("downloading")
                     self._s_status.configure(
                         text=self._tr("status.track", idx=idx, total=total),
-                        text_color="#42A5F5",
+                        text_color=self._palette["accent"],
                     )
 
                 elif kind == "track_pct":
@@ -965,7 +1096,7 @@ class App(ctk.CTk):
                     is_cancelled = bool(item[3]) if len(item) > 3 else False
                     self._is_downloading = False
                     self._prog_bar.set(1.0 if success else self._prog_bar.get())
-                    tc = self.C_SUCCESS if success else (self.C_ERR if not is_cancelled else "#f0ad4e")
+                    tc = self.C_SUCCESS if success else (self.C_ERR if not is_cancelled else self._palette["warning_text"])
                     if success:
                         lbl = self._tr("status.done")
                     elif is_cancelled:
@@ -1007,7 +1138,7 @@ class App(ctk.CTk):
 
         for i in range(1, total + 1):
             if i not in self._track_rows:
-                tr = TrackRow(self._pl_scroll, i, "...")
+                tr = TrackRow(self._pl_scroll, i, "...", self._palette)
                 tr.grid(row=i - 1, column=0, padx=2, pady=2, sticky="ew")
                 self._track_rows[i] = tr
 
@@ -1016,7 +1147,7 @@ class App(ctk.CTk):
             self._pl_empty.grid_remove()
             self._pl_scroll.grid()
         if 1 not in self._track_rows:
-            tr = TrackRow(self._pl_scroll, 1, title)
+            tr = TrackRow(self._pl_scroll, 1, title, self._palette)
             tr.grid(row=0, column=0, padx=2, pady=2, sticky="ew")
             self._track_rows[1] = tr
         self._track_rows[1].set_title(title)
@@ -1166,17 +1297,17 @@ class App(ctk.CTk):
 
         self._dl_btn.configure(
             text=self._tr("button.cancel"),
-            fg_color="#875a12",
-            hover_color="#a96f17",
+            fg_color=self._palette["warning"],
+            hover_color=self._palette["warning_hover"],
         )
         self._is_downloading = True
         self._cancel_event.clear()
         self._prog_bar.set(0)
-        self._s_pct.configure(text="0.0%", text_color="#909090")
+        self._s_pct.configure(text="0.0%", text_color=self._palette["text_muted"])
         self._s_speed.configure(text=self._tr("status.idle"))
         self._s_eta.configure(text=self._tr("status.idle"))
         self._s_size.configure(text=self._tr("status.idle"))
-        self._s_status.configure(text=self._tr("status.idle"), text_color="#909090")
+        self._s_status.configure(text=self._tr("status.idle"), text_color=self._palette["text_muted"])
 
         threading.Thread(target=self._worker, args=(urls,), daemon=True).start()
 
@@ -1184,7 +1315,7 @@ class App(ctk.CTk):
         if not self._is_downloading:
             return
         self._cancel_event.set()
-        self._s_status.configure(text=self._tr("status.cancelling"), text_color="#f0ad4e")
+        self._s_status.configure(text=self._tr("status.cancelling"), text_color=self._palette["warning_text"])
 
     def _record_history(self, info: dict, filename: str):
         file_path = filename or ""
