@@ -53,6 +53,51 @@ class TestGuiLayout(unittest.TestCase):
         finally:
             app.destroy()
 
+    def test_download_action_lives_in_fixed_action_bar(self):
+        with (
+            mock.patch.object(gui, 'load_config', return_value={'theme': 'dark', 'language': 'en'}),
+            mock.patch.object(gui, 'save_config'),
+        ):
+            app = gui.App()
+
+        try:
+            self.assertTrue(hasattr(app, '_content_scroll'))
+            self.assertTrue(hasattr(app, '_action_bar'))
+            self.assertTrue(_has_ancestor(app._dl_btn, app._action_bar))
+            self.assertFalse(_has_ancestor(app._dl_btn, app._container))
+        finally:
+            app.destroy()
+
+
+class TestGuiFetchSummary(unittest.TestCase):
+    def test_summarize_media_info_marks_single_item(self):
+        summary = gui.summarize_media_info({
+            'title': 'Song',
+            'duration': 166,
+            'channel': 'Artist',
+        }, 'https://example.com/watch?v=1')
+
+        self.assertFalse(summary['is_playlist'])
+        self.assertEqual(summary['title'], 'Song')
+        self.assertEqual(summary['channel'], 'Artist')
+        self.assertIsNone(summary['count'])
+
+    def test_summarize_media_info_prefers_playlist_count_and_first_entry(self):
+        summary = gui.summarize_media_info({
+            '_type': 'playlist',
+            'playlist_count': 12,
+            'entries': [{
+                'title': 'Track One',
+                'duration': 201,
+                'channel': 'Playlist Artist',
+            }],
+        }, 'https://example.com/playlist?list=1')
+
+        self.assertTrue(summary['is_playlist'])
+        self.assertEqual(summary['count'], 12)
+        self.assertEqual(summary['title'], 'Track One')
+        self.assertEqual(summary['channel'], 'Playlist Artist')
+
 
 class _Var:
     def __init__(self, value):

@@ -12,8 +12,6 @@ import queue
 import subprocess
 import sys
 import webbrowser
-import base64
-from urllib import request as urlrequest
 from datetime import datetime
 from tkinter import messagebox
 
@@ -41,6 +39,40 @@ ctk.set_default_color_theme('dark-blue')
 __version__ = '3.1.0'
 APP_RELEASE_REPO = 'Kcguner/yt-downloader'
 DEFAULT_OUTTMPL = '%(playlist_index|)s%(playlist_index& - |)s%(title)s.%(ext)s'
+
+
+def summarize_media_info(info: dict | None, fallback_url: str = '') -> dict[str, object]:
+    info = info or {}
+    is_playlist = info.get('_type') == 'playlist'
+    if is_playlist:
+        entries = [entry for entry in (info.get('entries') or []) if isinstance(entry, dict)]
+        primary = entries[0] if entries else info
+        count = info.get('playlist_count') or info.get('n_entries') or len(entries) or None
+    else:
+        primary = info
+        count = None
+
+    title = (
+        primary.get('title')
+        or info.get('title')
+        or fallback_url
+    )
+    duration = primary.get('duration')
+    channel = (
+        primary.get('channel')
+        or primary.get('uploader')
+        or info.get('channel')
+        or info.get('uploader')
+        or '-'
+    )
+
+    return {
+        'is_playlist': bool(is_playlist),
+        'count': count,
+        'title': title,
+        'duration': duration,
+        'channel': channel,
+    }
 
 
 def resolve_theme_palette(mode: str) -> dict[str, str]:
@@ -290,7 +322,7 @@ class App(ctk.CTk):
         ctk.set_appearance_mode(self._theme)
         self._apply_theme_palette()
         self.title(self._tr('app.title'))
-        self.geometry('960x880')
+        self.geometry('960x820')
         self.minsize(700, 640)
         self.resizable(True, True)
         self.configure(fg_color=self._palette['window_bg'])
@@ -310,9 +342,7 @@ class App(ctk.CTk):
         self._batch_index = 0
         self._batch_urls: dict[int, str] = {}
         self._dnd_available = False
-        self._preview_img: tk.PhotoImage | None = None
         self._preview_loading = False
-        self._preview_spinner_phase = 0
         self._latest_app_release_url: str | None = None
         self._latest_ytdlp_version: str | None = None
         self._ffmpeg_location, self._ffmpeg_source = resolve_ffmpeg_location()
@@ -324,11 +354,28 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self._container = ctk.CTkFrame(self, fg_color='transparent')
-        self._container.grid(row=0, column=0, sticky='nsew')
+        self._layout_root = ctk.CTkFrame(self, fg_color='transparent')
+        self._layout_root.grid(row=0, column=0, sticky='nsew')
+        self._layout_root.grid_columnconfigure(0, weight=1)
+        self._layout_root.grid_rowconfigure(0, weight=1)
+
+        self._content_scroll = ctk.CTkScrollableFrame(
+            self._layout_root,
+            fg_color='transparent',
+            corner_radius=0,
+            border_width=0,
+        )
+        self._content_scroll.grid(row=0, column=0, sticky='nsew', padx=24, pady=(0, 10))
+        self._content_scroll.grid_columnconfigure(0, weight=1)
+
+        self._container = ctk.CTkFrame(self._content_scroll, fg_color='transparent')
+        self._container.grid(row=0, column=0, sticky='ew')
         self._container.grid_columnconfigure(0, weight=1)
-        for r in range(10):
-            self._container.grid_rowconfigure(r, weight=(1 if r == 8 else 0))
+        self._container.grid_rowconfigure(6, weight=1)
+
+        self._action_bar = ctk.CTkFrame(self._layout_root, fg_color='transparent')
+        self._action_bar.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 18))
+        self._action_bar.grid_columnconfigure(0, weight=1)
 
         self.bind('<Configure>', self._on_resize)
 
@@ -344,7 +391,8 @@ class App(ctk.CTk):
             pad_x = (w - self.MAX_W) // 2
         else:
             pad_x = 24
-        self._container.grid_configure(padx=pad_x)
+        self._content_scroll.grid_configure(padx=pad_x)
+        self._action_bar.grid_configure(padx=pad_x)
 
     def _tr(self, key: str, **kwargs) -> str:
         return tr(self._locales, self._lang, key, **kwargs)
@@ -415,8 +463,9 @@ class App(ctk.CTk):
         self._rebuild_ui()
 
     def _rebuild_ui(self):
-        for child in self._container.winfo_children():
-            child.destroy()
+        for host in (self._container, self._action_bar):
+            for child in host.winfo_children():
+                child.destroy()
         self._track_rows.clear()
         self._track_files.clear()
         self._current_dl_idx = None
@@ -481,7 +530,7 @@ class App(ctk.CTk):
     def _omenu(self, parent, values, var, **gkw) -> ctk.CTkOptionMenu:
         m = ctk.CTkOptionMenu(
             parent, values=values, variable=var,
-            height=38, corner_radius=8,
+            height=36, corner_radius=10,
             fg_color=self.C_OPT_BG,
             button_color=self.C_OPT_BTN,
             button_hover_color=self.C_OPT_HOV,
@@ -575,7 +624,6 @@ class App(ctk.CTk):
     def _build_all(self):
         self._build_header()
         self._build_url()
-        self._build_preview()
         self._build_type_format()
         self._build_options()
         self._on_type(self._type_seg.get())
@@ -698,7 +746,7 @@ class App(ctk.CTk):
     # ── URL ─────────────────────────────────────
     def _build_header_pref_selector(self, parent, column: int, label: str, values, variable, command):
         wrapper = ctk.CTkFrame(parent, fg_color='transparent')
-        wrapper.grid(row=0, column=column, padx=(12, 12), pady=10, sticky='ew')
+        wrapper.grid(row=0, column=column, padx=(10, 10), pady=8, sticky='ew')
         ctk.CTkLabel(
             wrapper,
             text=label,
@@ -706,7 +754,7 @@ class App(ctk.CTk):
             text_color=self._palette['card_title'],
         ).grid(row=0, column=0, sticky='w', pady=(0, 4))
         menu = self._omenu(wrapper, values, variable, row=1, column=0, sticky='ew')
-        menu.configure(width=148, height=34, command=command)
+        menu.configure(width=138, height=32, command=command)
         return menu
 
     def _build_update_notices(self, parent):
@@ -782,15 +830,15 @@ class App(ctk.CTk):
     def _build_url(self):
         card = self._card(1, self._tr('url.label'))
         inner = ctk.CTkFrame(card, fg_color='transparent')
-        inner.grid(row=1, column=0, padx=18, pady=(6, 18), sticky='ew')
+        inner.grid(row=1, column=0, padx=18, pady=(4, 14), sticky='ew')
         inner.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             inner,
             text=self._tr('url.placeholder'),
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=11),
             text_color=self._palette['text_subtle'],
-        ).grid(row=0, column=0, sticky='w', pady=(0, 8), columnspan=2)
+        ).grid(row=0, column=0, sticky='w', pady=(0, 6), columnspan=2)
 
         row = ctk.CTkFrame(inner, fg_color='transparent')
         row.grid(row=1, column=0, sticky='ew', columnspan=2)
@@ -798,7 +846,7 @@ class App(ctk.CTk):
 
         self.url_entry = ctk.CTkTextbox(
             row,
-            height=86,
+            height=54,
             font=ctk.CTkFont(size=14),
             corner_radius=12,
             border_width=1,
@@ -812,10 +860,10 @@ class App(ctk.CTk):
         self._bind_context_menu(self.url_entry)
 
         btns = ctk.CTkFrame(row, fg_color='transparent')
-        btns.grid(row=0, column=1, padx=(8, 0))
+        btns.grid(row=0, column=1, padx=(8, 0), sticky='n')
 
         ctk.CTkButton(
-            btns, text=self._tr('button.paste'), width=96, height=44,
+            btns, text=self._tr('button.paste'), width=90, height=40,
             command=self._paste, corner_radius=12,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=13, weight='bold'),
@@ -823,7 +871,7 @@ class App(ctk.CTk):
         ).pack(side='left', padx=(0, 5))
 
         ctk.CTkButton(
-            btns, text=self._tr('button.fetch_info'), width=108, height=44,
+            btns, text=self._tr('button.fetch_info'), width=102, height=40,
             command=self._start_preview_fetch,
             corner_radius=12,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
@@ -840,61 +888,17 @@ class App(ctk.CTk):
             text_color=self._palette['button_text'],
         ).pack(side='left')
 
-        self._setup_url_drag_drop()
-
-    def _build_preview(self):
-        card = self._card(2, self._tr('card.preview'))
-        body = ctk.CTkFrame(card, fg_color='transparent')
-        body.grid(row=1, column=0, padx=18, pady=(6, 16), sticky='ew')
-        body.grid_columnconfigure(1, weight=1)
-
-        self._preview_thumb = ctk.CTkLabel(
-            body,
-            width=212,
-            height=120,
-            text=self._tr('preview.empty'),
-            corner_radius=12,
-            fg_color=self._palette['input_bg'],
+        self._url_summary = ctk.CTkLabel(
+            inner,
+            text=self._tr('fetch_summary.idle'),
+            anchor='w',
+            justify='left',
+            font=ctk.CTkFont(size=11),
             text_color=self._palette['text_subtle'],
         )
-        self._preview_thumb.grid(row=0, column=0, rowspan=3, padx=(0, 12), sticky='nw')
+        self._url_summary.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(8, 0))
 
-        self._preview_title = ctk.CTkLabel(
-            body,
-            text=self._tr('preview.empty_title'),
-            anchor='w',
-            justify='left',
-            font=ctk.CTkFont(size=15, weight='bold'),
-            text_color=self._palette['text_primary'],
-        )
-        self._preview_title.grid(row=0, column=1, sticky='ew')
-
-        self._preview_meta = ctk.CTkLabel(
-            body,
-            text=self._tr('preview.empty_meta'),
-            anchor='w',
-            justify='left',
-            font=ctk.CTkFont(size=13),
-            text_color=self._palette['text_muted'],
-        )
-        self._preview_meta.grid(row=1, column=1, sticky='w', pady=(4, 0))
-
-        status_row = ctk.CTkFrame(body, fg_color='transparent')
-        status_row.grid(row=2, column=1, sticky='w', pady=(8, 0))
-        self._preview_spinner = ctk.CTkLabel(
-            status_row,
-            text='',
-            font=ctk.CTkFont(size=12, weight='bold'),
-            text_color=self._palette['accent'],
-        )
-        self._preview_spinner.pack(side='left')
-        self._preview_status = ctk.CTkLabel(
-            status_row,
-            text=self._tr('preview.idle'),
-            font=ctk.CTkFont(size=12),
-            text_color=self._palette['text_muted'],
-        )
-        self._preview_status.pack(side='left', padx=(6, 0))
+        self._setup_url_drag_drop()
 
     def _setup_url_drag_drop(self):
         self._dnd_available = False
@@ -931,15 +935,16 @@ class App(ctk.CTk):
         urls = [u.strip() for u in raw.splitlines() if u.strip()]
         url = next((u for u in urls if is_valid_download_url(u)), '')
         if not url:
-            self._preview_status.configure(text=self._tr('status.invalid_url'), text_color=self.C_ERR)
+            self._url_summary.configure(text=self._tr('status.invalid_url'), text_color=self.C_ERR)
             return
         if self._preview_loading:
             return
 
         self._preview_loading = True
-        self._preview_spinner_phase = 0
-        self._preview_status.configure(text=self._tr('preview.loading'), text_color=self._palette['text_muted'])
-        self._animate_preview_spinner()
+        self._url_summary.configure(
+            text=self._tr('fetch_summary.loading'),
+            text_color=self._palette['text_muted'],
+        )
         threading.Thread(target=self._preview_worker, args=(url,), daemon=True).start()
 
     def _preview_worker(self, url: str):
@@ -964,9 +969,7 @@ class App(ctk.CTk):
             title = (info or {}).get('title') or url
             duration = (info or {}).get('duration')
             channel = (info or {}).get('channel') or (info or {}).get('uploader') or '—'
-            thumbnail = (info or {}).get('thumbnail') or ''
-            thumb_data = self._download_thumbnail_data(thumbnail) if thumbnail else None
-            self._q('preview_data', title, duration, channel, thumb_data)
+            self._q('preview_data', summarize_media_info(info, url))
         except Exception as exc:
             self._q('preview_error', self._tr(map_download_exception_key(exc)))
 
@@ -1028,16 +1031,16 @@ class App(ctk.CTk):
 
     # ── Tür + Format (tek kart) ──────────────────
     def _build_type_format(self):
-        card = self._card(3, self._tr('card.mode_format'))
+        card = self._card(2, self._tr('card.mode_format'))
 
         inner = ctk.CTkFrame(card, fg_color='transparent')
-        inner.grid(row=1, column=0, padx=16, pady=12, sticky='ew')
+        inner.grid(row=1, column=0, padx=14, pady=(6, 12), sticky='ew')
         inner.grid_columnconfigure(1, weight=1)
 
         # Tür
         ctk.CTkLabel(
             inner, text=self._tr('label.type'),
-            font=ctk.CTkFont(size=13, weight='bold'),
+            font=ctk.CTkFont(size=12, weight='bold'),
             text_color=self._palette['card_title'], width=60,
         ).grid(row=0, column=0, sticky='w', padx=(0, 14))
 
@@ -1045,35 +1048,31 @@ class App(ctk.CTk):
             inner,
             values=[self._type_video_label, self._type_audio_label],
             command=self._on_type,
-            font=ctk.CTkFont(size=14),
-            height=40,
-            corner_radius=8,
+            font=ctk.CTkFont(size=13),
+            height=34,
+            corner_radius=10,
         )
         default_type = self._type_audio_label if self._media_type == 'audio' else self._type_video_label
         self._style_segmented_button(self._type_seg)
         self._type_seg.set(default_type)
         self._type_seg.grid(row=0, column=1, sticky='ew')
 
-        # Separator
-        sep = ctk.CTkFrame(inner, fg_color=self._palette['card_edge'], height=1)
-        sep.grid(row=1, column=0, columnspan=2, sticky='ew', pady=14)
-
         # Format
         ctk.CTkLabel(
             inner, text=self._tr('label.format'),
-            font=ctk.CTkFont(size=13, weight='bold'),
+            font=ctk.CTkFont(size=12, weight='bold'),
             text_color=self._palette['card_title'], width=60,
-        ).grid(row=2, column=0, sticky='w', padx=(0, 14))
+        ).grid(row=1, column=0, sticky='w', padx=(0, 14), pady=(10, 0))
 
         # Video formatları
         self._vfmt_frame = ctk.CTkFrame(inner, fg_color='transparent')
-        self._vfmt_frame.grid(row=2, column=1, sticky='ew')
+        self._vfmt_frame.grid(row=1, column=1, sticky='ew', pady=(10, 0))
         self._vfmt_seg = ctk.CTkSegmentedButton(
             self._vfmt_frame,
             values=['MP4', 'WEBM', 'MKV'],
             command=lambda v: setattr(self, '_fmt', v.lower()),
-            font=ctk.CTkFont(size=14), height=38,
-            corner_radius=8,
+            font=ctk.CTkFont(size=13), height=34,
+            corner_radius=10,
         )
         self._style_segmented_button(self._vfmt_seg)
         self._vfmt_seg.set('MP4')
@@ -1081,13 +1080,13 @@ class App(ctk.CTk):
 
         # Ses formatları
         self._afmt_frame = ctk.CTkFrame(inner, fg_color='transparent')
-        self._afmt_frame.grid(row=2, column=1, sticky='ew')
+        self._afmt_frame.grid(row=1, column=1, sticky='ew', pady=(10, 0))
         self._afmt_seg = ctk.CTkSegmentedButton(
             self._afmt_frame,
             values=['MP3', 'OPUS', 'FLAC', 'M4A', 'WAV'],
             command=lambda v: setattr(self, '_fmt', v.lower()),
-            font=ctk.CTkFont(size=14), height=38,
-            corner_radius=8,
+            font=ctk.CTkFont(size=13), height=34,
+            corner_radius=10,
         )
         self._style_segmented_button(self._afmt_seg)
         self._afmt_seg.set('MP3')
@@ -1096,12 +1095,12 @@ class App(ctk.CTk):
 
     # ── Ayarlar ──────────────────────────────────
     def _build_options(self):
-        self._settings_card = self._card(4, self._tr('card.media_options'))
+        self._settings_card = self._card(3, self._tr('card.media_options'))
         card = self._settings_card
 
         # ── Video ayarları
         self._v_opts = ctk.CTkFrame(card, fg_color='transparent')
-        self._v_opts.grid(row=1, column=0, padx=16, pady=(4, 16), sticky='ew')
+        self._v_opts.grid(row=1, column=0, padx=14, pady=(4, 12), sticky='ew')
         for c in range(4):
             self._v_opts.grid_columnconfigure(c, weight=1)
 
@@ -1129,14 +1128,14 @@ class App(ctk.CTk):
             px = (0 if col == 0 else 8, 0)
             ctk.CTkLabel(
                 self._v_opts, text=lbl,
-                font=ctk.CTkFont(size=12), text_color=self._palette['text_muted'],
-            ).grid(row=0, column=col, padx=px, sticky='w', pady=(0, 6))
+                font=ctk.CTkFont(size=11), text_color=self._palette['text_muted'],
+            ).grid(row=0, column=col, padx=px, sticky='w', pady=(0, 4))
             self._omenu(self._v_opts, vals, var,
                         row=1, column=col, padx=px, sticky='ew')
 
         # ── Ses ayarları
         self._a_opts = ctk.CTkFrame(card, fg_color='transparent')
-        self._a_opts.grid(row=1, column=0, padx=16, pady=(4, 16), sticky='ew')
+        self._a_opts.grid(row=1, column=0, padx=14, pady=(4, 12), sticky='ew')
         for c in range(3):
             self._a_opts.grid_columnconfigure(c, weight=1)
 
@@ -1159,8 +1158,8 @@ class App(ctk.CTk):
             px = (0 if col == 0 else 8, 0)
             ctk.CTkLabel(
                 self._a_opts, text=lbl,
-                font=ctk.CTkFont(size=12), text_color=self._palette['text_muted'],
-            ).grid(row=0, column=col, padx=px, sticky='w', pady=(0, 6))
+                font=ctk.CTkFont(size=11), text_color=self._palette['text_muted'],
+            ).grid(row=0, column=col, padx=px, sticky='w', pady=(0, 4))
             self._omenu(self._a_opts, vals, var,
                         row=1, column=col, padx=px, sticky='ew')
 
@@ -1169,15 +1168,15 @@ class App(ctk.CTk):
 
     # ── Kayıt Yeri ───────────────────────────────
     def _build_save_path(self):
-        card = self._card(5, self._tr('card.save_path'))
+        card = self._card(4, self._tr('card.save_path'))
         row = ctk.CTkFrame(card, fg_color='transparent')
-        row.grid(row=1, column=0, padx=16, pady=(4, 16), sticky='ew')
+        row.grid(row=1, column=0, padx=14, pady=(4, 12), sticky='ew')
         row.grid_columnconfigure(0, weight=1)
 
         self._out_entry = ctk.CTkEntry(
-            row, height=40,
+            row, height=36,
             font=ctk.CTkFont(size=13),
-            corner_radius=8,
+            corner_radius=10,
             border_width=1,
             fg_color=self._palette['input_bg'],
             border_color=self._palette['input_border'],
@@ -1188,8 +1187,8 @@ class App(ctk.CTk):
         self._bind_context_menu(self._out_entry)
 
         ctk.CTkButton(
-            row, text=self._tr('button.browse'), width=84, height=40,
-            command=self._browse, corner_radius=8,
+            row, text=self._tr('button.browse'), width=84, height=36,
+            command=self._browse, corner_radius=10,
             fg_color=self.C_BTN, hover_color=self.C_BTN_HOV,
             font=ctk.CTkFont(size=13),
             text_color=self._palette['button_text'],
@@ -1197,23 +1196,28 @@ class App(ctk.CTk):
 
     # ── İndir Butonu ─────────────────────────────
     def _build_dl_button(self):
-        action_row = ctk.CTkFrame(self._container, fg_color='transparent')
-        action_row.grid(row=6, column=0, padx=0, pady=(8, 4), sticky='ew')
+        action_row = ctk.CTkFrame(
+            self._action_bar,
+            corner_radius=16,
+            fg_color=self.C_CARD_BG,
+            border_width=1,
+            border_color=self.C_BORDER,
+        )
+        action_row.grid(row=0, column=0, padx=0, pady=0, sticky='ew')
         action_row.grid_columnconfigure(0, weight=1)
 
         self._dl_btn = ctk.CTkButton(
             action_row,
             text=self._tr('button.download'),
-            width=340,
-            height=56,
-            font=ctk.CTkFont(size=18, weight='bold'),
+            height=52,
+            font=ctk.CTkFont(size=17, weight='bold'),
             command=self._on_main_button,
             fg_color=self.C_RED,
             hover_color=self.C_RED_HOV,
-            corner_radius=28,
+            corner_radius=14,
             text_color=self._palette['accent_text'],
         )
-        self._dl_btn.grid(row=0, column=0, sticky='e')
+        self._dl_btn.grid(row=0, column=0, padx=14, pady=12, sticky='ew')
 
     def _on_main_button(self):
         if self._is_downloading:
@@ -1223,7 +1227,7 @@ class App(ctk.CTk):
 
     # ── İlerleme ─────────────────────────────────
     def _build_progress(self):
-        card = self._card(7, self._tr('card.transfer_status'))
+        card = self._card(5, self._tr('card.transfer_status'))
 
         prog_container = ctk.CTkFrame(card, fg_color='transparent')
         prog_container.grid(row=0, column=0, padx=16, pady=(14, 4), sticky='ew')
@@ -1278,7 +1282,7 @@ class App(ctk.CTk):
 
     # ── Track Listesi ────────────────────────────
     def _build_tracklist(self):
-        card = self._card(8, self._tr('card.current_stream'), expand=True)
+        card = self._card(6, self._tr('card.current_stream'), expand=True)
 
         # Boş durum
         self._pl_empty = ctk.CTkFrame(card, fg_color='transparent')
@@ -1318,7 +1322,7 @@ class App(ctk.CTk):
         self._pl_scroll.grid_remove()
 
     def _build_history_panel(self):
-        card = self._card(9, self._tr('card.download_history'))
+        card = self._card(7, self._tr('card.download_history'))
         toolbar = ctk.CTkFrame(card, fg_color='transparent')
         toolbar.grid(row=1, column=0, padx=16, pady=(4, 8), sticky='ew')
         toolbar.grid_columnconfigure(0, weight=1)
@@ -1497,8 +1501,8 @@ class App(ctk.CTk):
                         self._bind_track_open(1, full_path)
 
                 elif kind == 'preview_data':
-                    title, duration, channel, thumb_data = item[1], item[2], item[3], item[4]
-                    self._show_preview_data(title, duration, channel, thumb_data)
+                    summary = item[1]
+                    self._show_preview_data(summary)
 
                 elif kind == 'preview_error':
                     message = item[1]
@@ -1645,6 +1649,11 @@ class App(ctk.CTk):
 
     def _clear_url_text(self):
         self._clear_widget_text(self.url_entry)
+        if hasattr(self, '_url_summary'):
+            self._url_summary.configure(
+                text=self._tr('fetch_summary.idle'),
+                text_color=self._palette['text_subtle'],
+            )
         try:
             self.url_entry.focus_set()
         except Exception:
@@ -1966,6 +1975,70 @@ class App(ctk.CTk):
             extra += ['-ac', '1']
         if extra:
             opts['postprocessor_args'] = {'FFmpegExtractAudio': extra}
+
+    def _format_duration(self, seconds: int | float | None) -> str:
+        if not isinstance(seconds, (int, float)) or seconds < 0:
+            return '-'
+        total = int(seconds)
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return f'{h}:{m:02d}:{s:02d}'
+        return f'{m}:{s:02d}'
+
+    def _build_fetch_summary_text(self, summary: dict[str, object]) -> str:
+        duration = self._format_duration(summary.get('duration'))
+        title = str(summary.get('title') or '-')
+        channel = str(summary.get('channel') or '-')
+        channel_label = self._tr('fetch_summary.channel_label')
+        if summary.get('is_playlist'):
+            return self._tr(
+                'fetch_summary.playlist',
+                kind=self._tr('fetch_summary.playlist_kind'),
+                count=summary.get('count') or 0,
+                title=title,
+                duration=duration,
+                channel_label=channel_label,
+                channel=channel,
+            )
+        return self._tr(
+            'fetch_summary.single',
+            kind=self._tr('fetch_summary.single_kind'),
+            title=title,
+            duration=duration,
+            channel_label=channel_label,
+            channel=channel,
+        )
+
+    def _show_preview_data(self, summary: dict[str, object]):
+        self._preview_loading = False
+        self._url_summary.configure(
+            text=self._build_fetch_summary_text(summary),
+            text_color=self.C_SUCCESS,
+        )
+
+    def _show_preview_error(self, message: str):
+        self._preview_loading = False
+        self._url_summary.configure(text=message, text_color=self.C_ERR)
+
+    def _preview_worker(self, url: str):
+        try:
+            import yt_dlp
+        except ImportError:
+            self._q('preview_error', self._tr('error.ytdlp_missing'))
+            return
+
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            self._q('preview_data', summarize_media_info(info, url))
+        except Exception as exc:
+            self._q('preview_error', self._tr(map_download_exception_key(exc)))
 
     # ─────────────────────────────────────────────
     #  Progress hook (arka plan thread'inden)
