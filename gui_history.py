@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def history_path() -> Path:
-    return Path.home() / ".yt-downloader" / "history.json"
+    return Path.home() / '.yt-downloader' / 'history.json'
 
 
 def load_history() -> list[dict]:
@@ -13,7 +13,7 @@ def load_history() -> list[dict]:
     if not path.is_file():
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError):
         return []
     if isinstance(data, list):
@@ -24,7 +24,7 @@ def load_history() -> list[dict]:
 def save_history(items: list[dict]) -> None:
     path = history_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def append_history(item: dict) -> None:
@@ -34,11 +34,11 @@ def append_history(item: dict) -> None:
 
 
 def has_url(url: str) -> bool:
-    u = (url or "").strip()
+    u = (url or '').strip()
     if not u:
         return False
     for item in load_history():
-        if item.get("url") == u:
+        if item.get('url') == u:
             return True
     return False
 
