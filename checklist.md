@@ -130,6 +130,8 @@
 - [x] Ayarlar bölümüne tema seçici ekle: Koyu (varsayılan), Açık, Sistem
 - [x] `ctk.set_appearance_mode()` ile geçiş yap
 - [x] Seçimi `~/.yt-downloader/config.json` dosyasına kaydet
+- [x] Tema seçiciyi içerik ayarlarından ayırıp üst başlıktaki tercih alanına taşı
+- [x] Açık tema renk paletini kart, input, buton, progress ve liste bileşenlerine düzgün uygula
 
 ### 7.2 Video Önizleme
 - [ ] URL yapıştırıldıktan sonra "Bilgi Al" butonu veya otomatik bilgi çekme
@@ -158,6 +160,7 @@
 - [x] Tüm UI yazılarını sabit string yerine locale dosyasından çek
 - [x] Ayarlarda dil seçici ekle
 - [x] Varsayılan dil: Türkçe
+- [x] Dil seçiciyi içerik ayarlarından ayırıp üst başlıktaki tercih alanına taşı
 
 ---
 
@@ -190,6 +193,7 @@
 
 ### 10.2 Otomatik Testler (opsiyonel)
 - [x] `pytest` ile temel unit testler yaz
+- [x] Tema paleti ve header tercih yerleşimi için GUI regresyon testleri ekle
 - [ ] `_build_video_opts` ve `_build_audio_opts` fonksiyonlarını test et
 - [ ] Format string oluşturma mantığını doğrula
 - [ ] GitHub Actions ile CI pipeline kur
